@@ -175,6 +175,62 @@ async function reload() {
   }
 }
 
+// ---------- 强制更新：调用 GitHub 接口立即跑一次抓取工作流 ----------
+const DISPATCH_URL = "https://api.github.com/repos/vitocichen/NGA/actions/workflows/mobile-site.yml/dispatches";
+const FORCE_TIMEOUT = 240;
+
+function openTokenPanel() {
+  $("#tokenInput").value = "";
+  $("#tokenPanel").classList.remove("hidden");
+}
+
+async function forceUpdate() {
+  const token = localStorage.getItem("gh_token");
+  if (!token) return openTokenPanel();
+  const btn = $("#forceBtn");
+  btn.disabled = true;
+  const before = st.index ? st.index.updated : 0;
+  try {
+    const r = await fetch(DISPATCH_URL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
+      body: JSON.stringify({ ref: "main" }),
+    });
+    if (r.status === 401 || r.status === 403 || r.status === 404) {
+      localStorage.removeItem("gh_token");
+      btn.disabled = false;
+      alert(`Token 无效或权限不足（HTTP ${r.status}），请重新设置`);
+      return openTokenPanel();
+    }
+    if (r.status !== 204) throw new Error(`HTTP ${r.status}`);
+  } catch (e) {
+    btn.disabled = false;
+    alert(`触发失败：${e.message}`);
+    return;
+  }
+  const t0 = Date.now();
+  const tick = async () => {
+    const sec = Math.round((Date.now() - t0) / 1000);
+    btn.textContent = `更新中 ${sec}s`;
+    try {
+      const idx = await getJson("data/index.json");
+      if (idx.updated > before) {
+        btn.disabled = false;
+        btn.textContent = "强制更新";
+        return reload();
+      }
+    } catch (e) { /* 部署过程中短暂取不到属正常 */ }
+    if (sec > FORCE_TIMEOUT) {
+      btn.disabled = false;
+      btn.textContent = "强制更新";
+      alert("已触发，但 4 分钟内还没更新完，GitHub 可能在排队，请稍后点「刷新」");
+      return;
+    }
+    setTimeout(tick, 5000);
+  };
+  setTimeout(tick, 8000);
+}
+
 // 切回前台时只在站点数据确实更新了才重载，避免打断阅读位置
 async function reloadIfUpdated() {
   try {
@@ -190,6 +246,21 @@ function bind() {
     loadThread().catch((e) => { $("#more").innerHTML = `<span class="err">加载失败：${esc(e.message)}</span>`; });
   };
   $("#reloadBtn").onclick = reload;
+  $("#forceBtn").onclick = forceUpdate;
+  $("#tokenCancel").onclick = () => $("#tokenPanel").classList.add("hidden");
+  $("#tokenSave").onclick = () => {
+    const t = $("#tokenInput").value.trim();
+    if (!/^(github_pat_|ghp_)/.test(t)) return alert("看起来不是 GitHub Token，应以 github_pat_ 开头");
+    localStorage.setItem("gh_token", t);
+    $("#tokenPanel").classList.add("hidden");
+    forceUpdate();
+  };
+  $("#tokenClear").onclick = (e) => {
+    e.preventDefault();
+    localStorage.removeItem("gh_token");
+    $("#tokenPanel").classList.add("hidden");
+    alert("已清除");
+  };
   const group = (attr, key) => $$(`[data-${attr}]`).forEach((b) => b.onclick = () => {
     st[key] = b.dataset[attr];
     $$(`[data-${attr}]`).forEach((x) => x.classList.toggle("on", x === b));
