@@ -5,16 +5,21 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const BATCH = 40;
 const STALE_SEC = 40 * 60;
+const PREFETCH_PX = 800;
 
 const st = {
   tid: localStorage.getItem("m_tid") || "",
   mode: "all",
-  order: "desc",
+  // chat：最新在下（默认，往上加载更早）；desc：最新在上
+  order: "chat",
   range: "0",
   index: null,
   data: null,
   list: [],
-  shown: 0,
+  // list 中已渲染的区间 [lo, hi)
+  lo: 0,
+  hi: 0,
+  atBottom: true,
 };
 
 const fmt = (ts) => {
@@ -31,6 +36,9 @@ const ago = (ts) => {
   const s = Math.floor(Date.now() / 1000) - ts;
   return s < 60 ? "刚刚" : s < 3600 ? `${Math.floor(s / 60)} 分钟前` : `${Math.floor(s / 3600)} 小时前`;
 };
+const pageBottom = () => document.documentElement.scrollHeight - window.innerHeight;
+const isAtBottom = () => pageBottom() - window.scrollY < 80;
+const scrollToBottom = () => { window.scrollTo(0, pageBottom()); st.atBottom = true; };
 
 async function getJson(path) {
   const r = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
@@ -47,7 +55,6 @@ async function loadIndex() {
 }
 
 async function loadThread() {
-  $("#feed").innerHTML = "";
   $("#more").textContent = "加载中…";
   st.data = await getJson(`data/${st.tid}.json`);
   document.title = `${st.data.title} - NGA 阅读`;
@@ -56,38 +63,44 @@ async function loadThread() {
 
 function inRange(p) {
   if (st.range === "0") return true;
-  const now = Math.floor(Date.now() / 1000);
   if (st.range === "today") {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
     return p.ts >= d / 1000;
   }
-  return p.ts >= now - Number(st.range);
+  return p.ts >= Math.floor(Date.now() / 1000) - Number(st.range);
 }
 
 function rebuild() {
   const d = st.data;
   const src = st.mode === "op" ? d.op_posts : d.posts;
   st.list = src.filter(inRange);
-  if (st.order === "desc") st.list = st.list.slice().reverse();
-  st.shown = 0;
+  if (st.order === "desc") st.list.reverse();
   $("#feed").innerHTML = "";
   renderMeta();
   if (!st.list.length) {
     $("#feed").innerHTML = '<div class="empty">这个范围内没有发言</div>';
     $("#more").textContent = "";
+    $("#topMore").textContent = "";
     return;
   }
-  renderMore();
-  window.scrollTo(0, 0);
+  if (st.order === "chat") {
+    st.lo = st.hi = st.list.length;
+    renderOlder();
+    scrollToBottom();
+  } else {
+    st.lo = st.hi = 0;
+    renderNewer();
+    window.scrollTo(0, 0);
+  }
 }
 
 function renderMeta() {
   const d = st.data;
   const up = st.index.updated;
   const stale = Date.now() / 1000 - up > STALE_SEC;
-  const range = st.mode === "op" ? `楼主最近 ${d.op_posts.length} 帖` : `最近 ${d.posts.length} 楼`;
-  $("#meta").innerHTML = `共 <b>${d.rows_total}</b> 楼 · 显示${range}中的 <b>${st.list.length}</b> 条 · `
+  const scope = st.mode === "op" ? `楼主最近 ${d.op_posts.length} 帖` : `最近 ${d.posts.length} 楼`;
+  $("#meta").innerHTML = `共 <b>${d.rows_total}</b> 楼 · 显示${scope}中的 <b>${st.list.length}</b> 条 · `
     + `<span class="${stale ? "stale" : ""}">数据更新于 ${fmt(up)}（${ago(up)}）</span>`;
 }
 
@@ -116,11 +129,28 @@ function postHtml(p) {
   </article>`;
 }
 
-function renderMore() {
-  const next = st.list.slice(st.shown, st.shown + BATCH);
+const END_TIP = "没有更早的了（只同步最近的楼层，更早的内容请到 NGA 查看）";
+
+// 最新在下：往上补更早的楼层，并保持当前看到的位置不动
+function renderOlder() {
+  if (st.lo <= 0) return;
+  const from = Math.max(0, st.lo - BATCH);
+  const html = st.list.slice(from, st.lo).map(postHtml).join("");
+  const keep = document.documentElement.scrollHeight - window.scrollY;
+  $("#feed").insertAdjacentHTML("afterbegin", html);
+  window.scrollTo(0, document.documentElement.scrollHeight - keep);
+  st.lo = from;
+  $("#topMore").textContent = st.lo > 0 ? "继续上滑加载更早的" : END_TIP;
+  $("#more").textContent = "已是最新 · 点「刷新」获取最新同步的数据";
+}
+
+// 最新在上：往下补更早的楼层
+function renderNewer() {
+  const next = st.list.slice(st.hi, st.hi + BATCH);
   $("#feed").insertAdjacentHTML("beforeend", next.map(postHtml).join(""));
-  st.shown += next.length;
-  $("#more").textContent = st.shown < st.list.length ? "继续下滑加载更多" : "没有更多了（只同步最近的楼层，完整内容请到 NGA 查看）";
+  st.hi += next.length;
+  $("#topMore").textContent = "";
+  $("#more").textContent = st.hi < st.list.length ? "继续下滑加载更多" : END_TIP;
 }
 
 async function reload() {
@@ -136,6 +166,14 @@ async function reload() {
     btn.disabled = false;
     btn.textContent = "刷新";
   }
+}
+
+// 切回前台时只在站点数据确实更新了才重载，避免打断阅读位置
+async function reloadIfUpdated() {
+  try {
+    const idx = await getJson("data/index.json");
+    if (!st.index || idx.updated !== st.index.updated) reload();
+  } catch (e) { /* 离线时保持原样 */ }
 }
 
 function bind() {
@@ -155,11 +193,20 @@ function bind() {
   group("range", "range");
 
   new IntersectionObserver((ents) => {
-    if (ents.some((e) => e.isIntersecting) && st.data && st.shown < st.list.length) renderMore();
-  }, { rootMargin: "800px 0px" }).observe($("#more"));
+    if (st.order === "chat" && st.data && ents.some((e) => e.isIntersecting)) renderOlder();
+  }, { rootMargin: `${PREFETCH_PX}px 0px 0px 0px` }).observe($("#topMore"));
+  new IntersectionObserver((ents) => {
+    if (st.order === "desc" && st.data && st.hi < st.list.length && ents.some((e) => e.isIntersecting)) renderNewer();
+  }, { rootMargin: `0px 0px ${PREFETCH_PX}px 0px` }).observe($("#more"));
 
-  window.addEventListener("scroll", () => $("#toTop").classList.toggle("hidden", window.scrollY < 600), { passive: true });
+  window.addEventListener("scroll", () => { st.atBottom = isAtBottom(); }, { passive: true });
+  // 图片、表情加载会撑高页面；停在底部时继续贴底
+  document.addEventListener("load", (e) => {
+    if (e.target instanceof HTMLImageElement && st.order === "chat" && st.atBottom) scrollToBottom();
+  }, true);
   $("#toTop").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
+  $("#toBottom").onclick = () => window.scrollTo({ top: pageBottom(), behavior: "smooth" });
+
   $("#feed").addEventListener("click", (e) => {
     const img = e.target.closest(".pimg");
     if (!img) return;
@@ -167,8 +214,7 @@ function bind() {
     $("#lightbox").classList.remove("hidden");
   });
   $("#lightbox").onclick = () => $("#lightbox").classList.add("hidden");
-  // 从后台切回来时自动拉最新数据
-  document.addEventListener("visibilitychange", () => { if (!document.hidden && st.data) reload(); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden && st.data) reloadIfUpdated(); });
 }
 
 (async function init() {

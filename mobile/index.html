@@ -24,8 +24,8 @@
       <button data-mode="op">楼主</button>
     </div>
     <div class="seg">
-      <button data-order="desc" class="on">最新在上</button>
-      <button data-order="asc">最早在上</button>
+      <button data-order="chat" class="on">最新在下</button>
+      <button data-order="desc">最新在上</button>
     </div>
   </div>
   <div class="bar chips">
@@ -37,10 +37,14 @@
   <div id="meta" class="meta"></div>
 </header>
 
+<div id="topMore"></div>
 <main id="feed"></main>
 <div id="more"></div>
 
-<button id="toTop" class="hidden">↑</button>
+<div id="nav">
+  <button id="toTop" title="顶部">↑</button>
+  <button id="toBottom" title="底部">↓</button>
+</div>
 <div id="lightbox" class="hidden"><img alt=""></div>
 
 <script src="render.js"></script>
