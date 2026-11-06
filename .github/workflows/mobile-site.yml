@@ -1,7 +1,7 @@
 name: 手机版站点
 
 on:
-  # GitHub 定时任务在整点附近经常被延迟或跳过，错开到每 10 分钟的第 3 分钟
+  # schedule 在本仓库从未触发过，定时更新实际靠下面 next 任务接力；保留它以防哪天恢复
   schedule:
     - cron: "3,13,23,33,43,53 * * * *"
   workflow_dispatch:
@@ -18,14 +18,13 @@ permissions:
   pages: write
   id-token: write
 
-concurrency:
-  group: mobile-site
-  cancel-in-progress: false
-
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 8
+    concurrency:
+      group: mobile-site-build
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -74,9 +73,28 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    concurrency:
+      group: mobile-site-deploy
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
         uses: actions/deploy-pages@v4
+
+  # 接力定时：10 分钟后用 GITHUB_TOKEN 再触发一次本工作流（官方允许 GITHUB_TOKEN 触发 workflow_dispatch）。
+  # 不依赖 build，抓取失败也不断链；新运行的 next 会取消旧的，始终只有一条链
+  next:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: mobile-site-next
+      cancel-in-progress: true
+    permissions:
+      actions: write
+    steps:
+      - run: sleep 600
+      - run: gh workflow run mobile-site.yml --repo "${{ github.repository }}" --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}
