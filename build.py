@@ -12,7 +12,7 @@ import PyInstaller.__main__
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NAME = "NGAReader"
-SOURCE_FILES = ["app.py", "nga_api.py", "nga_ai.py", "build.py", "requirements.txt",
+SOURCE_FILES = ["app.py", "nga_api.py", "nga_ai.py", "nga_login.py", "build.py", "requirements.txt",
                 "README.md", "LICENSE", ".gitignore", "启动.vbs", "启动.bat"]
 
 
@@ -23,6 +23,13 @@ def copy_source(out):
         shutil.copy2(os.path.join(ROOT, f), dest)
     shutil.copytree(os.path.join(ROOT, "web"), os.path.join(dest, "web"), dirs_exist_ok=True)
     shutil.copy2(os.path.join(ROOT, "LICENSE"), out)
+
+
+def copy_seed_names(out):
+    """附带本机已收集的昵称表（NGA 公开昵称），新用户打开就能看到大部分昵称。"""
+    src = os.path.join(ROOT, "data", "names.json")
+    if os.path.exists(src):
+        shutil.copy2(src, os.path.join(out, "_internal", "seed_names.json"))
 
 
 def main():
@@ -46,6 +53,7 @@ def main():
     ])
     out = os.path.join(ROOT, "dist", NAME)
     copy_source(out)
+    copy_seed_names(out)
     for leak in (os.path.join(out, "data"), os.path.join(out, "源码", "data")):
         if os.path.exists(leak):
             sys.exit(f"打包结果里出现了 {leak}，已中止，请检查")

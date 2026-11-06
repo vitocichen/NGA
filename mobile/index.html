@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="NGA 阅读">
+<meta name="theme-color" content="#f6e6bd">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<title>NGA 阅读</title>
+<link rel="stylesheet" href="m.css">
+</head>
+<body>
+<header id="top">
+  <div class="bar">
+    <select id="threadSel"></select>
+    <button id="reloadBtn" title="重新获取最新数据">刷新</button>
+  </div>
+  <div class="bar tabs">
+    <div class="seg">
+      <button data-mode="all" class="on">全部</button>
+      <button data-mode="op">楼主</button>
+    </div>
+    <div class="seg">
+      <button data-order="desc" class="on">最新在上</button>
+      <button data-order="asc">最早在上</button>
+    </div>
+  </div>
+  <div class="bar chips">
+    <button data-range="0" class="on">全部时间</button>
+    <button data-range="3600">近 1 小时</button>
+    <button data-range="10800">近 3 小时</button>
+    <button data-range="today">今天</button>
+  </div>
+  <div id="meta" class="meta"></div>
+</header>
+
+<main id="feed"></main>
+<div id="more"></div>
+
+<button id="toTop" class="hidden">↑</button>
+<div id="lightbox" class="hidden"><img alt=""></div>
+
+<script src="render.js"></script>
+<script src="m.js"></script>
+</body>
+</html>

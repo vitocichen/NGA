@@ -2,8 +2,6 @@
 
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
-const ATTACH_BASE = "https://img.nga.cn/attachments/";
-const SMILE_BASE = "https://img4.nga.cn/ngabbs/post/smile/";
 const PREFETCH_PX = 1600;
 const LOAD_BATCH = 3;
 
@@ -43,8 +41,6 @@ async function api(path, params) {
   if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
   return d;
 }
-const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const pad = (n) => String(n).padStart(2, "0");
 const fmtTime = (ts) => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const fmtDateInput = (ts) => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 const nowTs = () => Math.floor(Date.now() / 1000);
@@ -62,81 +58,6 @@ function parseTid(raw) {
   raw = raw.trim();
   const m = raw.match(/tid=(\d+)/) || raw.match(/^(\d+)$/);
   return m ? m[1] : null;
-}
-
-// ---------- BBCode 渲染 ----------
-function normalizeImg(u) {
-  u = u.trim();
-  if (u.startsWith("./")) u = ATTACH_BASE + u.slice(2);
-  else if (u.startsWith("/")) u = ATTACH_BASE + u.slice(1);
-  else if (/^mon_\d/.test(u)) u = ATTACH_BASE + u;
-  return u.replace("img.nga.178.com", "img.nga.cn");
-}
-function imgTag(u) {
-  u = normalizeImg(u);
-  if (!/^https?:\/\//.test(u)) return "";
-  return `<img class="pimg" loading="lazy" referrerpolicy="no-referrer" src="${esc(u)}" data-orig="${esc(u)}">`;
-}
-function safeUrl(u) {
-  u = u.trim().replace(/&amp;/g, "&");
-  if (u.startsWith("/")) u = "https://bbs.nga.cn" + u;
-  return /^https?:\/\//.test(u) ? esc(u) : null;
-}
-
-function renderContent(src) {
-  let s = String(src || "")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    // NGA 对 emoji 等字符做了双重转义：&amp;#128059;
-    .replace(/&amp;(#\d{2,7};|#x[0-9a-f]{2,6};)/gi, "&$1");
-
-  s = s.replace(/\[s:(\d+)\]/g, (m, n) => smile("0", n, m));
-  s = s.replace(/\[s:([^:\]]+):([^\]]+)\]/g, (m, g, n) => smile(g, n, m));
-  s = s.replace(/\[img\]\s*([\s\S]*?)\s*\[\/img\]/gi, (m, u) => imgTag(u));
-
-  // 楼中楼回复头：[b]Reply to [pid=..]Reply[/pid] Post by [uid=..]name[/uid] (time)正文可能也在[/b]里
-  s = s.replace(/\[b\]\s*Reply to \[(pid|tid)=(\d+)[^\]]*\][\s\S]*?\[\/\1\]\s*Post by \[uid=?(\d*)\]([\s\S]*?)\[\/uid\]\s*\(([^)]*)\)([\s\S]*?)\[\/b\]/gi,
-    (m, k, id, uid, name, t, rest) => `<div class="replyto">回复 <a class="at" href="https://bbs.nga.cn/read.php?${k}=${id}" target="_blank">@${name}</a> <span class="t">${t}</span></div>${rest.replace(/^\s+/, "")}`);
-  // 引用头：[pid=..]Reply[/pid] [b]Post by [uid=..]name[/uid] (time):[/b]
-  s = s.replace(/\[(pid|tid)=(\d+)[^\]]*\][\s\S]*?\[\/\1\]\s*\[b\]\s*Post by \[uid=?(\d*)\]([\s\S]*?)\[\/uid\]\s*\(([^)]*)\):?\s*\[\/b\]/gi,
-    (m, k, id, uid, name, t) => `<div class="qhead"><a class="at" href="https://bbs.nga.cn/read.php?${k}=${id}" target="_blank">${name}</a> <span class="t">${t}</span></div>`);
-
-  s = s.replace(/\[pid=(\d+)[^\]]*\]([\s\S]*?)\[\/pid\]/gi, (m, id, t) => `<a href="https://bbs.nga.cn/read.php?pid=${id}" target="_blank">${t === "Reply" ? "回复" : t}</a>`);
-  s = s.replace(/\[tid=(\d+)[^\]]*\]([\s\S]*?)\[\/tid\]/gi, (m, id, t) => `<a href="https://bbs.nga.cn/read.php?tid=${id}" target="_blank">${t === "Topic" ? "主题" : t}</a>`);
-  s = s.replace(/\[uid=?(\d*)\]([\s\S]*?)\[\/uid\]/gi, (m, uid, n) => `<span class="at">${n}</span>`);
-  s = s.replace(/\[url=([^\]]+)\]([\s\S]*?)\[\/url\]/gi, (m, u, t) => { const h = safeUrl(u); return h ? `<a href="${h}" target="_blank">${t}</a>` : t; });
-  s = s.replace(/\[url\]([\s\S]*?)\[\/url\]/gi, (m, u) => { const h = safeUrl(u); return h ? `<a href="${h}" target="_blank">${u}</a>` : u; });
-
-  const simple = [
-    [/\[b\]([\s\S]*?)\[\/b\]/gi, "<b>$1</b>"],
-    [/\[i\]([\s\S]*?)\[\/i\]/gi, "<i>$1</i>"],
-    [/\[u\]([\s\S]*?)\[\/u\]/gi, "<u>$1</u>"],
-    [/\[del\]([\s\S]*?)\[\/del\]/gi, "<del>$1</del>"],
-    [/\[h\]([\s\S]*?)\[\/h\]/gi, "<h4>$1</h4>"],
-    [/\[code\]([\s\S]*?)\[\/code\]/gi, "<pre>$1</pre>"],
-    [/\[color=([#\w]{1,20})\]([\s\S]*?)\[\/color\]/gi, '<span style="color:$1">$2</span>'],
-    [/\[align=(left|right|center)\]([\s\S]*?)\[\/align\]/gi, '<div style="text-align:$1">$2</div>'],
-    [/\[font=[^\]]*\]([\s\S]*?)\[\/font\]/gi, "$1"],
-    [/\[list\]([\s\S]*?)\[\/list\]/gi, (m, b) => "<ul>" + b.split("[*]").filter((x) => x.trim()).map((x) => `<li>${x}</li>`).join("") + "</ul>"],
-    [/\[size=(\d+)%?\]([\s\S]*?)\[\/size\]/gi, (m, n, t) => `<span style="font-size:${Math.min(250, Math.max(60, +n))}%">${t}</span>`],
-    [/\[collapse(?:=([^\]]*))?\]([\s\S]*?)\[\/collapse\]/gi, (m, t, b) => `<details><summary>${t || "点击显示隐藏的内容"}</summary>${b}</details>`],
-    [/\[quote\]((?:(?!\[quote\])[\s\S])*?)\[\/quote\]/gi, (m, b) => `<div class="quote">${b.replace(/^\n+|\n+$/g, "")}</div>`],
-  ];
-  for (let i = 0; i < 6; i++) {
-    const before = s;
-    for (const [re, rep] of simple) s = s.replace(re, rep);
-    if (s === before) break;
-  }
-  s = s.replace(/\[\/?(attach|flash|stripbtn|randomblock|dice)[^\]]*\]/gi, "");
-  s = s.replace(/(<\/div>|<\/details>|<\/ul>|<\/h4>|<\/pre>)\n{1,2}/g, "$1");
-  return s.replace(/\n/g, "<br>");
-}
-function smile(group, name, raw) {
-  const g = state.smiles[group];
-  const f = g && g[name];
-  return f ? `<img class="smile" src="${SMILE_BASE}${f}" alt="${esc(name)}" title="${esc(name)}">` : `<span class="smile-txt">[${name}]</span>`;
 }
 
 // ---------- 楼层卡片 ----------
@@ -174,7 +95,7 @@ function postHtml(p, isNew) {
   <div class="post${isNew ? " new" : ""}${isOp ? " op" : ""}" id="l${p.lou}" data-lou="${p.lou}">
     <div class="poster" title="${esc(tip)}">
       <div class="utop">
-        <span class="uname">${esc(name)}</span>
+        <span class="uname" data-uid="${esc(p.authorid)}">${esc(name)}</span>
         ${isOp ? '<span class="tag op">楼主</span>' : ""}
         ${u && u.muted ? '<span class="tag muted">禁言</span>' : ""}
       </div>
@@ -208,14 +129,35 @@ function renderPosts(posts, where, isNew = false) {
   const html = fresh.map((p) => postHtml(p, isNew)).join("");
   $("#feed").insertAdjacentHTML(where === "top" ? "afterbegin" : "beforeend", html);
   state.count += fresh.length;
+  scheduleNameFill();
   return fresh.length;
 }
+
+// 游客拿不到昵称，后端会边看边从回复里学；这里把页面上仍显示 UID 的补上
+function scheduleNameFill() {
+  clearTimeout(scheduleNameFill._t);
+  scheduleNameFill._t = setTimeout(fillUnknownNames, 1500);
+}
+async function fillUnknownNames() {
+  const els = $$(".uname[data-uid]").filter((el) => el.textContent.startsWith("UID:"));
+  const uids = [...new Set(els.map((el) => el.dataset.uid))].slice(0, 300);
+  if (!uids.length) return;
+  let names;
+  try { names = await api("names", { uids: uids.join(",") }); } catch (e) { return; }
+  for (const el of els) {
+    const n = names[el.dataset.uid];
+    if (n) el.textContent = n;
+  }
+  for (const [uid, n] of Object.entries(names)) if (state.users[uid]) state.users[uid].name = n;
+}
+setInterval(fillUnknownNames, 15000);
 
 // ---------- 视图与加载 ----------
 function applyMeta(d) {
   state.topic = { title: d.title, author: d.author, authorid: d.authorid, forum: d.forum, lastpost: d.lastpost, rows: d.rows_total, pages: d.pages, perPage: d.per_page };
   Object.assign(state.users, d.users);
   document.title = d.title ? `${d.title} - NGA 阅读器` : "NGA 阅读器";
+  if (d.title && !recentThreads().some((t) => t.tid === state.tid && t.title === d.title)) rememberThread(state.tid, d.title);
   $("#topicTitle").textContent = d.title || "-";
   $("#topicAuthor").textContent = d.author || d.authorid;
   $("#topicForum").textContent = d.forum || "-";
@@ -426,16 +368,54 @@ function setRange(from, to) {
   $("#toInput").value = to ? fmtDateInput(to) : "";
 }
 
+// ---------- 帖子列表：预设 + 最近打开 ----------
+const PRESET_THREADS = [
+  { tid: "47288722", title: "自立自强，科学技术打头阵----救赎版" },
+  { tid: "47812645", title: "左光右存算电主楼" },
+];
+const MAX_RECENT = 10;
+
+function recentThreads() {
+  try { return JSON.parse(localStorage.getItem("recentThreads") || "[]"); } catch (e) { return []; }
+}
+
+function rememberThread(tid, title) {
+  if (!tid || !title) return;
+  const list = recentThreads().filter((t) => t.tid !== tid);
+  list.unshift({ tid, title });
+  localStorage.setItem("recentThreads", JSON.stringify(list.slice(0, MAX_RECENT)));
+  renderThreadSelect();
+}
+
+function renderThreadSelect() {
+  const presetIds = new Set(PRESET_THREADS.map((t) => t.tid));
+  const recent = recentThreads().filter((t) => !presetIds.has(t.tid));
+  const opt = (t) => `<option value="${esc(t.tid)}">${esc(t.title)}（${esc(t.tid)}）</option>`;
+  let html = `<optgroup label="预设">${PRESET_THREADS.map(opt).join("")}</optgroup>`;
+  if (recent.length) html += `<optgroup label="最近打开">${recent.map(opt).join("")}</optgroup>`;
+  const known = presetIds.has(state.tid) || recent.some((t) => t.tid === state.tid);
+  if (!known) html = `<option value="${esc(state.tid)}">帖子 ${esc(state.tid)}</option>` + html;
+  $("#tidSelect").innerHTML = html;
+  $("#tidSelect").value = state.tid;
+}
+
+function openThread(tid) {
+  state.tid = tid;
+  localStorage.setItem("tid", tid);
+  state.authorid = null;
+  setMode();
+  renderThreadSelect();
+  startView();
+}
+
 function bind() {
-  $("#tidInput").value = `https://bbs.nga.cn/read.php?tid=${state.tid}`;
+  renderThreadSelect();
+  $("#tidSelect").onchange = () => openThread($("#tidSelect").value);
   $("#openBtn").onclick = () => {
     const tid = parseTid($("#tidInput").value);
     if (!tid) return toast("无法识别 tid，请输入帖子链接或数字");
-    state.tid = tid;
-    localStorage.setItem("tid", tid);
-    state.authorid = null;
-    setMode();
-    startView();
+    $("#tidInput").value = "";
+    openThread(tid);
   };
   $("#tidInput").addEventListener("keydown", (e) => e.key === "Enter" && $("#openBtn").click());
   $("#refreshBtn").onclick = refresh;
@@ -560,6 +540,71 @@ function updatePos() {
   info.classList.remove("hidden");
 }
 
+// ---------- NGA 账号 ----------
+async function postApi(path, body) {
+  const r = await fetch(`/api/${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+  return d;
+}
+
+async function refreshAccount() {
+  let s;
+  try { s = await api("nga/status", {}); } catch (e) { return null; }
+  state.account = s;
+  $(".account").classList.toggle("out", !s.logged_in);
+  $("#acctText").textContent = s.logged_in ? `已登录：${s.name}` : "NGA 账号：未登录";
+  $("#loginBtn").textContent = s.logged_in ? "退出" : s.login.state === "waiting" ? "登录中…" : "登录 NGA";
+  $("#acctHint").classList.toggle("hidden", s.logged_in);
+  return s;
+}
+
+async function afterLoginChange(msg) {
+  toast(msg, 3000);
+  await refreshAccount();
+  startView();
+}
+
+function pollLogin() {
+  clearInterval(pollLogin._t);
+  pollLogin._t = setInterval(async () => {
+    const s = await refreshAccount();
+    if (!s || s.login.state === "waiting") return;
+    clearInterval(pollLogin._t);
+    if (s.login.state === "success") afterLoginChange(`${s.login.message}，正在重新加载帖子`);
+    else if (s.login.state === "failed") toast(s.login.message, 5000);
+  }, 2000);
+}
+
+function bindAccount() {
+  $("#loginBtn").onclick = async () => {
+    if (state.account && state.account.logged_in) {
+      if (!confirm("确定退出 NGA 登录？退出后部分昵称会显示为 UID。")) return;
+      await postApi("nga/logout");
+      return afterLoginChange("已退出登录");
+    }
+    try {
+      const d = await postApi("nga/login");
+      toast("已打开 NGA 登录窗口，请在那个窗口里登录，完成后会自动关闭", 6000);
+      $("#loginBtn").textContent = "登录中…";
+      pollLogin();
+    } catch (e) {
+      toast(e.message, 5000);
+    }
+  };
+  $("#cookieLink").onclick = async (e) => {
+    e.preventDefault();
+    const cookie = prompt("粘贴 NGA 的 Cookie（浏览器登录 NGA 后按 F12 → 网络 → 任意请求的 Cookie 请求头），需包含 ngaPassportUid 和 ngaPassportCid：");
+    if (!cookie) return;
+    try {
+      const d = await postApi("nga/cookie", { cookie });
+      afterLoginChange(`登录成功：${d.name}，正在重新加载帖子`);
+    } catch (err) {
+      toast(err.message, 5000);
+    }
+  };
+}
+
 function setMode() {
   $("#allBtn").classList.toggle("active", !state.authorid);
   $("#opBtn").classList.toggle("active", !!state.authorid);
@@ -571,7 +616,9 @@ function setMode() {
   if (["asc", "desc", "chat"].includes(qs.get("order"))) state.order = qs.get("order");
   $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === state.order));
   bind();
-  try { state.smiles = await api("smiles", {}); } catch (e) { console.warn("表情表加载失败", e); }
+  bindAccount();
+  refreshAccount().then((s) => { if (s && s.login.state === "waiting") pollLogin(); });
+  try { state.smiles = window.SMILES = await api("smiles", {}); } catch (e) { console.warn("表情表加载失败", e); }
   const range = qs.get("range");
   if (qs.get("op") === "1") {
     const last = await api("page", { tid: state.tid, page: "e" });

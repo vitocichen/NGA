@@ -32,42 +32,36 @@ async function refreshAiStatus() {
 }
 
 // ---------- Markdown ----------
-function mdInline(s) {
-  return s
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
-    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
-    .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
-    .replace(/楼主第(\d+)帖/g, (m, n) => `<a href="#" class="ref" data-op="1" data-lou="${n}">${m}</a>`)
-    .replace(/主楼(?![\u4e00-\u9fa5])/g, (m) => (ai.byAuthor ? `<a href="#" class="ref" data-op="1" data-lou="0">${m}</a>` : m))
-    .replace(/#(\d{1,7})(?!\d)/g, (m, n) => `<a href="#" class="ref" data-lou="${n}">#${n}</a>`);
+// 模型输出受论坛内容影响，先把 HTML 全部转义再交给 marked；行首的 > 要保留给引用块
+function escapeMarkdownHtml(src) {
+  return String(src || "").split("\n").map((line) => {
+    const prefix = (line.match(/^\s*(?:>\s?)*/) || [""])[0];
+    return prefix + line.slice(prefix.length).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  }).join("\n");
+}
+
+// 只在普通文字里把楼层号变成链接；跳过标签、<code>、<a>，并避开 &#39; 这类实体
+function linkFloorRefs(html) {
+  let skip = 0;
+  return html.split(/(<[^>]+>)/).map((part) => {
+    if (part.startsWith("<")) {
+      if (/^<(code|a|pre)\b/i.test(part)) skip++;
+      else if (/^<\/(code|a|pre)>/i.test(part)) skip = Math.max(0, skip - 1);
+      return part;
+    }
+    if (skip) return part;
+    return part
+      .replace(/楼主第(\d+)帖/g, (m, n) => `<a href="#" class="ref" data-op="1" data-lou="${n}">${m}</a>`)
+      .replace(/主楼(?![\u4e00-\u9fa5])/g, (m) => (ai.byAuthor ? `<a href="#" class="ref" data-op="1" data-lou="0">${m}</a>` : m))
+      .replace(/(?<!&)#(\d{1,7})(?![\d;])/g, (m, n) => `<a href="#" class="ref" data-lou="${n}">#${n}</a>`);
+  }).join("");
 }
 
 function mdRender(src) {
-  const out = [];
-  let list = null;
-  const close = () => { if (list) { out.push(`</${list}>`); list = null; } };
-  for (const raw of esc(src).split("\n")) {
-    const line = raw.trimEnd();
-    let m;
-    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {
-      close();
-      const tag = m[1].length >= 4 ? "h4" : "h3";
-      out.push(`<${tag}>${mdInline(m[2])}</${tag}>`);
-    } else if ((m = line.match(/^\s*[-*•]\s+(.*)$/))) {
-      if (list !== "ul") { close(); out.push("<ul>"); list = "ul"; }
-      out.push(`<li>${mdInline(m[1])}</li>`);
-    } else if ((m = line.match(/^\s*\d+[.、)]\s+(.*)$/))) {
-      if (list !== "ol") { close(); out.push("<ol>"); list = "ol"; }
-      out.push(`<li>${mdInline(m[1])}</li>`);
-    } else if (!line.trim()) {
-      close();
-    } else {
-      close();
-      out.push(`<p>${mdInline(line)}</p>`);
-    }
-  }
-  close();
-  return out.join("");
+  const html = marked.parse(escapeMarkdownHtml(src), { gfm: true, breaks: true })
+    .replace(/<table>/g, '<div class="md-table"><table>')
+    .replace(/<\/table>/g, "</table></div>");
+  return linkFloorRefs(html);
 }
 
 function renderAi() {
@@ -96,8 +90,9 @@ function aiRange() {
 const PRESET_TITLES = { summary: "总结观点", change: "观点变化", plan: "预判与计划" };
 
 async function runAnalysis(opts) {
-  if (ai.running) return toast("已有分析在进行中");
   if (!ai.status || !ai.status.configured) return openAiModal();
+  // 后端会顶掉旧任务，这里只需断开旧的流
+  if (ai.ctrl) ai.ctrl.abort();
   if (!state.topic) return toast("帖子还没加载完");
   const [from, to] = aiRange();
   if (!from) return toast("「筛选范围」需要先在上面的「按时间筛选」里设置开始时间");
@@ -120,10 +115,10 @@ async function runAnalysis(opts) {
   setAiBusy(true);
   renderAi();
 
-  ai.ctrl = new AbortController();
+  const ctrl = ai.ctrl = new AbortController();
   try {
     const r = await fetch("/api/ai/analyze", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ai.ctrl.signal,
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: ctrl.signal,
     });
     if (!(r.headers.get("content-type") || "").includes("event-stream")) {
       const d = await r.json().catch(() => ({}));
@@ -144,42 +139,69 @@ async function runAnalysis(opts) {
       }
     }
   } catch (e) {
-    if (e.name !== "AbortError") $("#aiProgress").innerHTML = `<span class="err">${esc(e.message)}</span>`;
+    if (e.name !== "AbortError") setProgress(`<span class="err">${esc(e.message)}</span>`);
   } finally {
-    ai.running = false;
-    ai.ctrl = null;
-    setAiBusy(false);
-    renderAi();
+    // 被新任务顶掉时，界面状态归新任务管
+    if (ai.ctrl === ctrl) {
+      ai.running = false;
+      ai.ctrl = null;
+      setAiBusy(false);
+      renderAi();
+    }
   }
+}
+
+function setProgress(html, waiting) {
+  ai.progressHtml = html;
+  ai.waitStart = waiting ? Date.now() : 0;
+  $("#aiProgress").innerHTML = html;
+}
+
+// 等待模型首字期间每秒刷新已等待时长，避免看起来像卡死
+setInterval(() => {
+  if (!ai.running || !ai.waitStart || ai.text) return;
+  const sec = Math.round((Date.now() - ai.waitStart) / 1000);
+  $("#aiProgress").innerHTML = `${ai.progressHtml}（已等待 ${sec} 秒）`;
+}, 1000);
+
+async function stopAnalysis() {
+  if (!ai.running) return;
+  try { await postJson("ai/cancel", {}); } catch (e) { /* 服务已断开时直接断流即可 */ }
+  if (ai.ctrl) ai.ctrl.abort();
+  setProgress(ai.text ? "已停止，以上为已生成的部分" : "已停止");
 }
 
 function handleAiEvent(ev) {
   switch (ev.type) {
     case "progress":
-      $("#aiProgress").innerHTML = `<span class="spinner"></span>${esc(ev.text)}`;
+      setProgress(`<span class="spinner"></span>${esc(ev.text)}`, ev.waiting);
       break;
     case "meta":
-      $("#aiPanelMeta").textContent = [ev.scope, `${ev.count} 楼`, ev.model, ev.cached ? "来自缓存" : "", ev.truncated ? "楼层过多已截断" : ""]
-        .filter(Boolean).join(" · ");
+      $("#aiPanelMeta").textContent = [ev.scope, `${ev.count} 楼`, ev.model, ev.cached ? "来自缓存" : "",
+        ev.skipped ? `内容过多，已略过更早的 ${ev.skipped} 楼` : ""].filter(Boolean).join(" · ");
       break;
     case "text":
-      if (!ai.text) $("#aiProgress").textContent = "";
+      if (!ai.text) setProgress("");
       ai.text += ev.text;
       renderAi();
       break;
+    case "cancelled":
+      setProgress(ai.text ? "已停止，以上为已生成的部分" : "已停止");
+      break;
     case "done":
-      $("#aiProgress").textContent = "";
+      setProgress("");
       $("#aiFoot").textContent = ev.cached ? "结果来自缓存，点「重新生成」可重新分析"
         : ev.usage ? `用量：输入 ${ev.usage.input} tokens · 输出 ${ev.usage.output} tokens` : "";
       break;
     case "error":
-      $("#aiProgress").innerHTML = `<span class="err">${esc(ev.message)}</span>`;
+      setProgress(`<span class="err">${esc(ev.message)}</span>`);
       break;
   }
 }
 
 function setAiBusy(busy) {
-  $$("[data-preset], #aiAskBtn, #aiRegenBtn").forEach((b) => { b.disabled = busy; });
+  $("#aiRegenBtn").disabled = busy;
+  $("#aiStopBtn").classList.toggle("hidden", !busy);
 }
 
 function jumpToRef(lou, op) {
@@ -322,8 +344,9 @@ function bindAi() {
   $("#aiAskBtn").onclick = ask;
   $("#aiQuestion").addEventListener("keydown", (e) => { if (e.key === "Enter" && e.ctrlKey) ask(); });
 
+  $("#aiStopBtn").onclick = stopAnalysis;
   $("#aiCloseBtn").onclick = () => {
-    if (ai.ctrl) ai.ctrl.abort();
+    stopAnalysis();
     $("#aiPanel").classList.add("hidden");
     document.body.classList.remove("ai-open");
   };

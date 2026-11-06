@@ -9,10 +9,19 @@
 <aside id="side">
   <div class="brand">NGA 阅读器</div>
 
+  <section class="box account">
+    <div class="acct-row">
+      <span id="acctText">NGA 账号：检查中…</span>
+      <button id="loginBtn" class="btn small">登录 NGA</button>
+    </div>
+    <div id="acctHint" class="acct-hint">未登录时 NGA 不返回用户名，部分昵称只能显示 UID。<a href="#" id="cookieLink">手动粘贴 Cookie</a></div>
+  </section>
+
   <section class="box">
-    <label class="lbl">帖子地址 / tid</label>
-    <div class="row">
-      <input id="tidInput" placeholder="https://bbs.nga.cn/read.php?tid=...">
+    <label class="lbl">帖子</label>
+    <select id="tidSelect" class="wide-select"></select>
+    <div class="row" style="margin-top:5px">
+      <input id="tidInput" placeholder="或粘贴帖子链接 / tid">
       <button id="openBtn" class="btn small">打开</button>
     </div>
   </section>
@@ -112,6 +121,7 @@
       <div id="aiPanelMeta" class="ai-pmeta"></div>
     </div>
     <div class="ai-actions">
+      <button id="aiStopBtn" class="btn tiny stop hidden" title="停止生成，保留已输出的内容">停止</button>
       <button id="aiRegenBtn" class="btn tiny" title="忽略缓存重新生成">重新生成</button>
       <button id="aiCopyBtn" class="btn tiny">复制</button>
       <button id="aiCloseBtn" class="btn tiny">关闭</button>
@@ -157,7 +167,9 @@
 <div id="toast" class="hidden"></div>
 <div id="lightbox" class="hidden"><img alt=""></div>
 
+<script src="render.js"></script>
 <script src="app.js"></script>
+<script src="marked.min.js"></script>
 <script src="ai.js"></script>
 </body>
 </html>

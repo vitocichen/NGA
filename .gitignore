@@ -9,3 +9,6 @@ build/
 __pycache__/
 *.pyc
 *.tmp
+
+# 手机版站点本地生成目录
+_site/

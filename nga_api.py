@@ -24,6 +24,8 @@ else:
     BASE_DIR = RES_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 NAMES_FILE = os.path.join(DATA_DIR, "names.json")
+SEED_NAMES_FILE = os.path.join(RES_DIR, "seed_names.json")
+HARVEST_PAGES = 40
 SMILES_FILE = os.path.join(DATA_DIR, "smiles.json")
 COOKIE_FILE = os.path.join(DATA_DIR, "cookie.txt")
 
@@ -84,19 +86,94 @@ class NgaClient:
             # 不带 Referer 时 guestJs 令牌每次都会被判 403
             "Referer": f"{HOST}/",
         })
+        self.account = None
         if os.path.exists(COOKIE_FILE):
-            cookie = open(COOKIE_FILE, encoding="utf-8").read().strip()
-            if cookie:
-                self.s.headers["Cookie"] = cookie
+            self._apply_cookie(open(COOKIE_FILE, encoding="utf-8").read())
         self._net_slots = threading.Semaphore(MAX_CONCURRENCY)
         self._token_lock = threading.Lock()
         self._cache = {}
         self._cache_lock = threading.Lock()
-        self.names = _load_json(NAMES_FILE, {})
+        # 游客拿不到用户名，只能从楼层里的 [uid=..]昵称[/uid] 积累；打包时附带一份种子表
+        self.names = {**_load_json(SEED_NAMES_FILE, {}), **_load_json(NAMES_FILE, {})}
         self._names_dirty = False
+        self._harvested = set()
         self._names_lock = threading.Lock()
         self._rep_ids = {}
         self._smiles = None
+
+    # ---------- 登录 ----------
+    @staticmethod
+    def parse_cookie(text):
+        pairs = {}
+        for part in re.split(r";\s*", (text or "").strip()):
+            k, sep, v = part.partition("=")
+            if sep and k.strip():
+                pairs[k.strip()] = v.strip()
+        return pairs
+
+    def _apply_cookie(self, text):
+        pairs = self.parse_cookie(text)
+        for k, v in pairs.items():
+            self.s.cookies.set(k, v, domain=".nga.cn", path="/")
+        uid = pairs.get("ngaPassportUid", "")
+        self.account = {"uid": uid} if uid.isdigit() and pairs.get("ngaPassportCid") else None
+        return pairs
+
+    def login_with_cookie(self, pairs):
+        """保存登录 Cookie 并验证，返回登录账号的昵称。"""
+        if isinstance(pairs, str):
+            pairs = self.parse_cookie(pairs)
+        uid = pairs.get("ngaPassportUid", "")
+        if not (uid.isdigit() and pairs.get("ngaPassportCid")):
+            raise NgaError("Cookie 里缺少 ngaPassportUid（数字）或 ngaPassportCid，不是有效的登录状态")
+        self.s.cookies.clear()
+        text = "; ".join(f"{k}={v}" for k, v in pairs.items())
+        self._apply_cookie(text)
+        name = self._account_name(uid)
+        if not name:
+            self.logout()
+            raise NgaError("用这个 Cookie 访问 NGA 仍是游客身份，可能已过期，请重新登录")
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(COOKIE_FILE, "w", encoding="utf-8") as f:
+            f.write(text)
+        self.account = {"uid": uid, "name": name}
+        self._reset_cache()
+        return name
+
+    def logout(self):
+        self.s.cookies.clear()
+        self.account = None
+        try:
+            os.remove(COOKIE_FILE)
+        except OSError:
+            pass
+        self._reset_cache()
+
+    def account_status(self):
+        if self.account and "name" not in self.account:
+            self.account["name"] = self._account_name(self.account["uid"]) or ""
+        a = self.account
+        return {"logged_in": bool(a and a.get("name")), "uid": a and a["uid"], "name": a and a.get("name")}
+
+    def _account_name(self, uid):
+        """游客看到的用户名是 UID 加数字，能拿到真名才说明登录有效。"""
+        try:
+            d = self._fetch_json(f"{HOST}/nuke.php?__lib=ucp&__act=get&uid={uid}&__output=11")
+        except NgaError:
+            return None
+        rows = d if isinstance(d, list) else d.get("0") or d.get("data") or []
+        if isinstance(rows, dict):
+            rows = [rows]
+        for u in rows if isinstance(rows, list) else []:
+            name = (u or {}).get("username", "")
+            if name and not re.fullmatch(r"UID:?\d+", name):
+                return name
+        return None
+
+    def _reset_cache(self):
+        with self._cache_lock:
+            self._cache.clear()
+        self._harvested.clear()
 
     # ---------- 网络 ----------
     def _fetch(self, url):
@@ -155,7 +232,28 @@ class NgaClient:
         with self._cache_lock:
             self._cache[(tid, authorid, data["page"])] = (time.time(), data)
         self._flush_names()
+        if page == "e" and not authorid and tid not in self._harvested:
+            self._harvested.add(tid)
+            threading.Thread(target=self._harvest_names, args=(tid, data["page"]), daemon=True).start()
         return data
+
+    def _harvest_names(self, tid, last_page):
+        """后台扫最近几十页，从回复/引用里多收集些昵称。"""
+        pages = range(last_page - 1, max(0, last_page - HARVEST_PAGES), -1)
+        with ThreadPoolExecutor(4) as pool:
+            for _ in pool.map(lambda p: self._safe_page(tid, p), pages):
+                pass
+        self._flush_names()
+
+    def _safe_page(self, tid, page):
+        try:
+            self.page(tid, page)
+        except NgaError:
+            pass
+
+    def lookup_names(self, uids):
+        with self._names_lock:
+            return {u: self.names[u] for u in uids if u in self.names}
 
     def locate(self, tid, ts, authorid=None):
         """返回包含时间戳 ts 附近楼层的页码：首楼时间 <= ts 的最后一页。"""

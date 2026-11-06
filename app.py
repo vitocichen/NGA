@@ -26,6 +26,7 @@ if sys.platform == "win32":
 
 import nga_ai
 from nga_api import DATA_DIR, RES_DIR, NgaClient, NgaError, fetch_image
+from nga_login import LoginError, LoginFlow
 
 WEB_DIR = os.path.join(RES_DIR, "web")
 IMG_HOST_SUFFIX = (".nga.cn", ".178.com", ".ngacn.cc")
@@ -38,6 +39,7 @@ client = NgaClient()
 last_activity = time.time()
 bye_at = 0.0
 analysis_lock = threading.Lock()
+current_job = None
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -70,6 +72,11 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(client.page(q["tid"], page, q.get("authorid"), fresh=q.get("fresh") == "1"))
             elif u.path == "/api/locate":
                 self._json({"page": client.locate(q["tid"], int(q["ts"]), q.get("authorid"))})
+            elif u.path == "/api/nga/status":
+                self._json({**client.account_status(), "login": login_flow.status()})
+            elif u.path == "/api/names":
+                uids = [x for x in q.get("uids", "").split(",") if x.isdigit()][:300]
+                self._json(client.lookup_names(uids))
             elif u.path == "/api/smiles":
                 self._json(client.smiles())
             elif u.path == "/api/ai/status":
@@ -111,18 +118,36 @@ class Handler(BaseHTTPRequestHandler):
             elif path == "/api/ai/clear":
                 nga_ai.clear_provider(body["provider"])
                 self._json({"ok": True})
+            elif path == "/api/nga/login":
+                login_flow.start()
+                self._json({"ok": True, "login": login_flow.status()})
+            elif path == "/api/nga/cookie":
+                self._json({"ok": True, "name": client.login_with_cookie(body.get("cookie", ""))})
+            elif path == "/api/nga/logout":
+                client.logout()
+                self._json({"ok": True})
+            elif path == "/api/ai/cancel":
+                job = current_job
+                if job:
+                    job.cancel()
+                self._json({"ok": True, "cancelled": bool(job)})
             elif path == "/api/ai/analyze":
                 self._analyze(body)
             else:
                 self._json({"error": "未知接口"}, 404)
-        except nga_ai.AiError as e:
+        except (nga_ai.AiError, NgaError, LoginError) as e:
             self._json({"error": str(e)}, 400)
         except (KeyError, ValueError) as e:
             self._json({"error": f"参数错误：{e}"}, 400)
 
     def _analyze(self, body):
-        if not analysis_lock.acquire(blocking=False):
-            return self._json({"error": "已有分析任务在运行，请等它结束"}, 409)
+        global current_job
+        # 新的分析直接顶掉还在跑的旧任务，避免旧任务卡住后一直占着位置
+        if current_job:
+            current_job.cancel()
+        if not analysis_lock.acquire(timeout=15):
+            return self._json({"error": "上一个分析任务停不下来，请稍后再试"}, 409)
+        job = current_job = nga_ai.Job()
         try:
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")
@@ -141,18 +166,23 @@ class Handler(BaseHTTPRequestHandler):
                         self.wfile.flush()
                     except OSError:
                         gone = True
+                        job.cancel()
 
             try:
-                self._run_analysis(body, emit)
+                self._run_analysis(body, emit, job)
+            except nga_ai.Cancelled:
+                emit(type="cancelled")
             except (NgaError, nga_ai.AiError) as e:
                 emit(type="error", message=str(e))
             except Exception as e:
                 traceback.print_exc()
                 emit(type="error", message=f"内部错误：{e}")
         finally:
+            if current_job is job:
+                current_job = None
             analysis_lock.release()
 
-    def _run_analysis(self, body, emit):
+    def _run_analysis(self, body, emit, job):
         pid, settings = nga_ai.active_settings()
         tid = str(body["tid"])
         authorid = str(body.get("authorid") or "")
@@ -166,17 +196,20 @@ class Handler(BaseHTTPRequestHandler):
         model_label = f"{nga_ai.PROVIDERS[pid]['name']} · {model}"
 
         emit(type="progress", text="正在定位时间范围…")
-        last, posts, users = nga_ai.collect_posts(
+        last, posts, users, dropped = nga_ai.collect_posts(
             client, tid, authorid or None, from_ts, to_ts,
-            progress=lambda t: emit(type="progress", text=t))
+            progress=lambda t: emit(type="progress", text=t), job=job)
         if not posts:
             raise nga_ai.AiError("这个时间范围内没有发言")
+        material, used = nga_ai.build_material(posts, users, bool(authorid))
+        skipped = dropped + len(posts) - used
+        posts = posts[len(posts) - used:]
 
         scope = (f"{'只看楼主' if authorid else '全部发言'}，"
                  f"{nga_ai.fmt_ts(posts[0]['ts'])} ~ {nga_ai.fmt_ts(posts[-1]['ts'])}")
         key = nga_ai.cache_key(tid, authorid, from_ts, to_ts, question, pid, model, posts[-1]["lou"], len(posts))
         meta = dict(type="meta", count=len(posts), scope=scope, model=model_label, question=question,
-                    truncated=len(posts) >= nga_ai.MAX_POSTS)
+                    skipped=skipped)
         cached = None if body.get("force") else nga_ai.cache_get(key)
         if cached:
             emit(**meta, cached=True)
@@ -184,12 +217,12 @@ class Handler(BaseHTTPRequestHandler):
             return emit(type="done", usage=cached.get("usage"), cached=True)
 
         emit(**meta, cached=False)
-        emit(type="progress", text=f"已整理 {len(posts)} 楼，正在等待 {model_label} 生成…")
-        material = nga_ai.build_material(posts, users, bool(authorid))
+        emit(type="progress", text=f"已整理 {len(posts)} 楼（约 {len(material) // 1000} 千字），"
+                                   f"正在等待 {model_label} 生成，内容越多等得越久…", waiting=True)
         system, user = nga_ai.build_prompt(last["title"], question, material, scope, len(posts))
         # 缓存键同时作为会话 ID：同一次分析的重试会落在同一会话上
         text, usage = nga_ai.run_analysis(pid, settings, system, user,
-                                          lambda t: emit(type="text", text=t), session=f"ses_nga{key}")
+                                          lambda t: emit(type="text", text=t), session=f"ses_nga{key}", job=job)
         nga_ai.cache_put(key, {"text": text, "usage": usage, "scope": scope, "model": model_label, "at": time.time()})
         emit(type="done", usage=usage, cached=False)
 
@@ -234,6 +267,9 @@ def find_browser():
         if os.path.exists(c):
             return c
     return shutil.which("msedge") or shutil.which("chrome")
+
+
+login_flow = LoginFlow(find_browser(), client.login_with_cookie)
 
 
 def open_window(url):

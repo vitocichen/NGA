@@ -21,8 +21,9 @@ from nga_api import DATA_DIR, _load_json, _save_json
 CONFIG_FILE = os.path.join(DATA_DIR, "ai.json")
 CACHE_DIR = os.path.join(DATA_DIR, "ai_cache")
 SANDBOX_DIR = os.path.join(DATA_DIR, "ai_sandbox")
-MAX_POSTS = 600
-MAX_CHARS = 150_000
+MAX_POSTS = 800
+MAX_CHARS = 120_000
+READ_TIMEOUT = 300
 USER_AGENT = "nga-reader/1.0"
 
 OPENCODE_NOTE = ("OpenCode Go 官方定位是给编程 Agent 用的，并会监控非典型流量。"
@@ -58,6 +59,43 @@ _cfg_lock = threading.Lock()
 
 class AiError(Exception):
     pass
+
+
+class Cancelled(AiError):
+    pass
+
+
+class Job:
+    """一次分析任务；cancel() 会立即关闭正在读的网络流，阻塞的读取随之抛错退出。"""
+
+    def __init__(self):
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._closers = []
+
+    @property
+    def cancelled(self):
+        return self._event.is_set()
+
+    def cancel(self):
+        self._event.set()
+        with self._lock:
+            closers = list(self._closers)
+        for close in closers:
+            try:
+                close()
+            except Exception:
+                pass
+
+    def on_cancel(self, close):
+        with self._lock:
+            self._closers.append(close)
+        if self.cancelled:
+            close()
+
+    def check(self):
+        if self.cancelled:
+            raise Cancelled("已停止")
 
 
 def _sdk():
@@ -258,7 +296,7 @@ def _openai_ping(pid, s):
         raise _api_error(r)
 
 
-def _run_openai(pid, s, system, user, on_text, session):
+def _run_openai(pid, s, system, user, on_text, session, job):
     body = {
         "model": s["model"],
         "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -267,15 +305,29 @@ def _run_openai(pid, s, system, user, on_text, session):
     }
     try:
         r = requests.post(f"{s['base_url']}/chat/completions", headers=_headers(pid, s, session),
-                          json=body, stream=True, timeout=(20, 300))
+                          json=body, stream=True, timeout=(20, READ_TIMEOUT))
     except requests.RequestException as e:
+        job.check()
         raise AiError(f"连接 {s['base_url']} 失败：{e}") from e
+    job.on_cancel(r.close)
     if r.status_code != 200:
         raise _api_error(r)
+    try:
+        return _read_stream(r, on_text, job)
+    except requests.exceptions.ReadTimeout as e:
+        raise AiError(f"模型超过 {READ_TIMEOUT} 秒没有任何输出，可能是内容太长或服务繁忙，"
+                      "可以缩短时间范围或换个模型") from e
+    except (requests.RequestException, AttributeError, ValueError) as e:
+        # cancel() 关闭连接后，阻塞中的读取会以各种异常退出
+        job.check()
+        raise AiError(f"读取模型输出中断：{e}") from e
 
+
+def _read_stream(r, on_text, job):
     parts, usage = [], None
     r.encoding = "utf-8"
     for line in r.iter_lines(decode_unicode=True):
+        job.check()
         if not line or not line.startswith("data:"):
             continue
         data = line[5:].strip()
@@ -318,7 +370,7 @@ def _with_cursor(fn):
         raise AiError(f"调用 Cursor 失败：{e}") from e
 
 
-def _run_cursor(s, system, user, on_text):
+def _run_cursor(s, system, user, on_text, job):
     parts = []
 
     def on_delta(update):
@@ -341,10 +393,25 @@ def _run_cursor(s, system, user, on_text):
             ),
         )
         async with await client.create_agent(options) as agent:
+            job.check()
             run = await agent.send(f"{system}\n\n{user}", c.SendOptions(on_delta=on_delta))
-            return await run.wait()
+
+            async def watch():
+                while not job.cancelled:
+                    await asyncio.sleep(0.3)
+                try:
+                    await run.cancel()
+                except Exception:
+                    pass
+
+            watcher = asyncio.create_task(watch())
+            try:
+                return await run.wait()
+            finally:
+                watcher.cancel()
 
     result = _with_cursor(go)
+    job.check()
     if result.status != "finished":
         raise AiError(f"分析未完成（{result.status}）：{result.error_message or ''}")
     u = result.usage
@@ -352,11 +419,12 @@ def _run_cursor(s, system, user, on_text):
     return "".join(parts) or (result.result or ""), usage
 
 
-def run_analysis(pid, s, system, user, on_text, session):
-    """逐段回调文本；返回 (全文, 用量)。"""
+def run_analysis(pid, s, system, user, on_text, session, job=None):
+    """逐段回调文本；返回 (全文, 用量)。job 被取消时抛 Cancelled。"""
+    job = job or Job()
     if PROVIDERS[pid]["kind"] == "cursor":
-        return _run_cursor(s, system, user, on_text)
-    return _run_openai(pid, s, system, user, on_text, session)
+        return _run_cursor(s, system, user, on_text, job)
+    return _run_openai(pid, s, system, user, on_text, session, job)
 
 
 # ---------- 数据整理 ----------
@@ -376,32 +444,38 @@ def _clean(content):
     return re.sub(r"\n{3,}", "\n\n", s).strip()
 
 
-def collect_posts(client, tid, authorid, from_ts, to_ts, progress=None):
-    """按时间范围收集楼层（从旧到新）。"""
+def collect_posts(client, tid, authorid, from_ts, to_ts, progress=None, job=None):
+    """按时间范围收集楼层（从旧到新）。超过 MAX_POSTS 时保留最新的，返回 (末页, 楼层, 用户, 丢弃数)。"""
+    job = job or Job()
     last = client.page(tid, "e", authorid, fresh=True)
     start = client.locate(tid, from_ts, authorid) if from_ts else 1
     posts, users = [], {}
     page = start
     while page <= last["pages"]:
+        job.check()
         d = client.page(tid, page, authorid)
         users.update(d["users"])
+        done = False
         for p in d["posts"]:
             if from_ts and p["ts"] < from_ts:
                 continue
             if to_ts and p["ts"] > to_ts:
-                return last, posts, users
+                done = True
+                break
             posts.append(p)
         if progress:
             progress(f"已读取 {len(posts)} 楼（第 {page}/{last['pages']} 页）")
-        if len(posts) >= MAX_POSTS:
+        if done:
             break
         page += 1
-    return last, posts, users
+    dropped = max(0, len(posts) - MAX_POSTS)
+    return last, posts[dropped:], users, dropped
 
 
 def build_material(posts, users, by_author):
+    """超过 MAX_CHARS 时从最早的楼层开始丢弃，返回 (素材, 实际使用的楼层数)。"""
     lines, total = [], 0
-    for p in posts:
+    for p in reversed(posts):
         name = users.get(p["authorid"], {}).get("name") or f"UID:{p['authorid']}"
         label = (f"楼主第{p['lou']}帖" if p["lou"] else "主楼") if by_author else f"#{p['lou']}"
         body = _clean(p["content"])
@@ -410,10 +484,11 @@ def build_material(posts, users, by_author):
         line = f"<post floor=\"{label}\" time=\"{p['time']}\" author=\"{name}\">\n{body}\n</post>"
         total += len(line)
         if total > MAX_CHARS:
-            lines.append("<!-- 内容过长，后续楼层已截断 -->")
+            lines.append("<!-- 内容过长，更早的楼层已省略 -->")
             break
         lines.append(line)
-    return "\n".join(lines)
+    used = len([l for l in lines if l.startswith("<post")])
+    return "\n".join(reversed(lines)), used
 
 
 PRESETS = {
