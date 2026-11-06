@@ -2,6 +2,7 @@
 
 产物：dist/NGAReader/（整个文件夹发给别人，双击 NGAReader.exe）
 以及同名 zip。不会打包 data/（Key、Cookie、浏览器缓存、昵称缓存都在里面）。
+完整源码附在 NGAReader/源码/ 下，拿到的人可以修改后用源码运行或重新打包。
 """
 import os
 import shutil
@@ -11,6 +12,17 @@ import PyInstaller.__main__
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NAME = "NGAReader"
+SOURCE_FILES = ["app.py", "nga_api.py", "nga_ai.py", "build.py", "requirements.txt",
+                "README.md", "LICENSE", ".gitignore", "启动.vbs", "启动.bat"]
+
+
+def copy_source(out):
+    dest = os.path.join(out, "源码")
+    os.makedirs(dest, exist_ok=True)
+    for f in SOURCE_FILES:
+        shutil.copy2(os.path.join(ROOT, f), dest)
+    shutil.copytree(os.path.join(ROOT, "web"), os.path.join(dest, "web"), dirs_exist_ok=True)
+    shutil.copy2(os.path.join(ROOT, "LICENSE"), out)
 
 
 def main():
@@ -33,8 +45,10 @@ def main():
         "--specpath=build",
     ])
     out = os.path.join(ROOT, "dist", NAME)
-    if os.path.exists(os.path.join(out, "data")):
-        sys.exit("打包结果里出现了 data 目录，已中止，请检查")
+    copy_source(out)
+    for leak in (os.path.join(out, "data"), os.path.join(out, "源码", "data")):
+        if os.path.exists(leak):
+            sys.exit(f"打包结果里出现了 {leak}，已中止，请检查")
     archive = shutil.make_archive(os.path.join(ROOT, "dist", NAME), "zip", os.path.join(ROOT, "dist"), NAME)
     size = sum(os.path.getsize(os.path.join(r, f)) for r, _, fs in os.walk(out) for f in fs)
     print(f"\n打包完成：{out}（{size / 1e6:.0f} MB）")
