@@ -58,7 +58,7 @@
       <li>在 GitHub 打开 <a href="https://github.com/settings/personal-access-tokens/new" target="_blank">新建细粒度 Token</a></li>
       <li>Token name 随便填，Expiration 选一个较长的期限</li>
       <li>Repository access 选 <b>Only select repositories</b> → 选 <b>NGA</b></li>
-      <li>Permissions → Repository permissions → <b>Actions</b> 设为 <b>Read and write</b>，其他保持不动</li>
+      <li>Permissions → Repository permissions → 找到 <b>Actions</b>，默认是 No access，<b>改成 Read and write</b>（最容易漏的一步）</li>
       <li>点 Generate token，复制以 <code>github_pat_</code> 开头的内容粘贴到下面</li>
     </ol>
     <p class="hint">这个 Token 只能触发和查看本仓库的工作流，读不到 Cookie，也改不了代码。</p>

@@ -197,9 +197,12 @@ async function forceUpdate() {
       body: JSON.stringify({ ref: "main" }),
     });
     if (r.status === 401 || r.status === 403 || r.status === 404) {
+      const detail = (await r.json().catch(() => ({}))).message || "";
       localStorage.removeItem("gh_token");
       btn.disabled = false;
-      alert(`Token 无效或权限不足（HTTP ${r.status}），请重新设置`);
+      const why = r.status === 401 ? "Token 无效或已过期"
+        : "Token 没有触发工作流的权限：请确认 Repository access 选了 NGA，且 Permissions 里 Actions 是 Read and write";
+      alert(`${why}\n\nGitHub 返回（HTTP ${r.status}）：${detail}`);
       return openTokenPanel();
     }
     if (r.status !== 204) throw new Error(`HTTP ${r.status}`);
