@@ -16,17 +16,23 @@ from nga_api import NgaClient, NgaError  # noqa: E402
 
 THREADS = ["47288722", "47812645"]
 ALL_PAGES = 15
-OP_PAGES = 5
+# 楼主按时间同步：覆盖最近 OP_DAYS 天，最多 OP_MAX_PAGES 页
+OP_DAYS = 31
+OP_MAX_PAGES = 60
 STATIC_FILES = ["index.html", "m.css", "m.js", "manifest.json", "icon-180.png", "icon-512.png"]
 
 
-def collect(client, tid, authorid, pages):
+def collect(client, tid, authorid, pages, since_ts=0):
     last = client.page(tid, "e", authorid, fresh=True)
     posts, users = list(last["posts"]), dict(last["users"])
     for p in range(last["page"] - 1, max(0, last["page"] - pages), -1):
+        if since_ts and posts and posts[0]["ts"] < since_ts:
+            break
         d = client.page(tid, p, authorid)
         posts = d["posts"] + posts
         users.update(d["users"])
+    if since_ts:
+        posts = [p for p in posts if p["ts"] >= since_ts]
     return last, posts, users
 
 
@@ -39,7 +45,8 @@ def build_thread(client, tid):
     # 抓取任务本身已覆盖最近几十页，不需要再后台扫描昵称
     client._harvested.add(tid)
     last, posts_all, users = collect(client, tid, None, ALL_PAGES)
-    _, posts_op, users_op = collect(client, tid, last["authorid"], OP_PAGES)
+    _, posts_op, users_op = collect(client, tid, last["authorid"], OP_MAX_PAGES,
+                                    since_ts=int(time.time()) - OP_DAYS * 86400)
     users.update(users_op)
     uids = {p["authorid"] for p in posts_all + posts_op}
     slim_users = {}

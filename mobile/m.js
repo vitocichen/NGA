@@ -61,14 +61,18 @@ async function loadThread() {
   rebuild();
 }
 
-function inRange(p) {
-  if (st.range === "0") return true;
+function rangeStart() {
+  if (st.range === "0") return 0;
   if (st.range === "today") {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
-    return p.ts >= d / 1000;
+    return Math.floor(d / 1000);
   }
-  return p.ts >= Math.floor(Date.now() / 1000) - Number(st.range);
+  return Math.floor(Date.now() / 1000) - Number(st.range);
+}
+
+function inRange(p) {
+  return p.ts >= rangeStart();
 }
 
 function rebuild() {
@@ -99,8 +103,13 @@ function renderMeta() {
   const d = st.data;
   const up = st.index.updated;
   const stale = Date.now() / 1000 - up > STALE_SEC;
-  const scope = st.mode === "op" ? `楼主最近 ${d.op_posts.length} 帖` : `最近 ${d.posts.length} 楼`;
-  $("#meta").innerHTML = `共 <b>${d.rows_total}</b> 楼 · 显示${scope}中的 <b>${st.list.length}</b> 条 · `
+  const src = st.mode === "op" ? d.op_posts : d.posts;
+  const scope = st.mode === "op" ? `楼主最近 ${src.length} 帖` : `最近 ${src.length} 楼`;
+  // 选的时间范围比同步到的数据更早时，提醒结果不完整
+  const since = rangeStart();
+  const partial = since && src.length && src[0].ts > since
+    ? `<span class="stale">（只同步到 ${fmt(src[0].ts)}，更早的请到 NGA 查看）</span> · ` : "";
+  $("#meta").innerHTML = `共 <b>${d.rows_total}</b> 楼 · 显示${scope}中的 <b>${st.list.length}</b> 条 · ${partial}`
     + `<span class="${stale ? "stale" : ""}">数据更新于 ${fmt(up)}（${ago(up)}）</span>`;
 }
 
