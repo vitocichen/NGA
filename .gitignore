@@ -1,0 +1,11 @@
+# 用户数据：API Key、Cookie、浏览器配置、昵称/AI 缓存、日志
+data/
+
+# 打包产物
+dist/
+build/
+*.spec
+
+__pycache__/
+*.pyc
+*.tmp
