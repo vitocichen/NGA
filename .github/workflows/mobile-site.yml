@@ -49,6 +49,17 @@ jobs:
         with:
           path: _site
 
+      # Pages 的 CDN 缓存 10 分钟且忽略查询参数；数据另推到 data 分支，强制更新时手机直接走 API 读取
+      - name: 发布数据到 data 分支
+        run: |
+          cd _site/data
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -qm "data $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data
+
       # 公开仓库 60 天无提交会停用定时任务；部署不产生提交，所以定期补一个空提交
       - name: 保持定时任务启用
         run: |

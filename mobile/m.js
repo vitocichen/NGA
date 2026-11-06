@@ -40,7 +40,20 @@ const pageBottom = () => document.documentElement.scrollHeight - window.innerHei
 const isAtBottom = () => pageBottom() - window.scrollY < 80;
 const scrollToBottom = () => { window.scrollTo(0, pageBottom()); st.atBottom = true; };
 
+const DATA_API = "https://api.github.com/repos/vitocichen/NGA/contents/";
+
+// Pages 的 CDN 会缓存 10 分钟且忽略 ?t= 参数；有 Token 时改从 data 分支经 API 读取，拿到的是刚推送的数据
 async function getJson(path) {
+  const token = localStorage.getItem("gh_token");
+  if (token && path.startsWith("data/")) {
+    try {
+      const r = await fetch(`${DATA_API}${path.slice(5)}?ref=data&t=${Date.now()}`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github.raw+json" },
+      });
+      if (r.ok) return r.json();
+    } catch (e) { /* 失败时退回 Pages */ }
+  }
   const r = await fetch(`${path}?t=${Date.now()}`, { cache: "no-store" });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
