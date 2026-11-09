@@ -24,13 +24,24 @@ zip 里的 `源码/` 是完整源码，可以随意修改：
 - 只改界面：直接编辑 `_internal/web/` 下的文件，重启程序即生效
 - 改后端或想重新打包：进入 `源码/`，按下面「从源码运行」「打包」操作
 
-## 从源码运行
+## 从源码运行（Windows / Mac）
 
-```bash
-pip install -r requirements.txt
-```
+需要 Python 3 和 Chrome / Edge 浏览器（没有时用系统默认浏览器打开）。启动脚本会自动安装依赖。
 
-双击 `启动.vbs`（无命令行窗口）或运行 `pythonw app.py`。
+| 系统 | 双击 |
+|---|---|
+| Windows | `启动_windows.bat` |
+| Mac | `启动_mac.command` |
+
+### Mac 使用
+
+1. 没有 Python 时到 [python.org](https://www.python.org/downloads/macos/) 安装 Python 3
+2. 双击 `启动_mac.command`。如果提示“没有权限”或“无法打开”：
+   - 打开「终端」，输入 `chmod +x ` （末尾有空格），把 `启动_mac.command` 拖进终端窗口，回车
+   - 再在访达里**右键 → 打开**（第一次需要这样绕过“未知开发者”提示）
+3. 第一次会自动创建运行环境 `.venv` 并安装依赖，之后打开都很快
+
+打包好的 `NGAReader.exe` 只支持 Windows，Mac 请用源码运行。
 
 ## 打包
 

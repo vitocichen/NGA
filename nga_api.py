@@ -3,6 +3,7 @@ import math
 import os
 import random
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -497,8 +498,9 @@ def parse_smiles(js):
 
 
 def fetch_image(url):
-    """EdgeOne 会拦截 Python requests，图片代理改用 curl。"""
-    p = subprocess.run(["curl.exe", "-s", "-L", "--max-time", "20", "-A", UA, url],
+    """EdgeOne 会拦截 Python requests，图片代理改用 curl（Windows 10+ 与 macOS 都自带）。"""
+    curl = shutil.which("curl") or "curl.exe"
+    p = subprocess.run([curl, "-s", "-L", "--max-time", "20", "-A", UA, url],
                        capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     if p.returncode != 0 or not p.stdout or p.stdout[:15].lower().startswith(b"<!doctype"):
         raise NgaError("图片获取失败")

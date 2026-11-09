@@ -55,6 +55,8 @@ PROVIDERS = {
 }
 
 _cfg_lock = threading.Lock()
+# Windows 上 Cursor 本地沙箱不可用，开启会报 invalid_argument
+_sandbox = {"enabled": sys.platform != "win32"}
 
 
 class AiError(Exception):
@@ -387,9 +389,8 @@ def _run_cursor(s, system, user, on_text, job):
             local=c.LocalAgentOptions(
                 cwd=SANDBOX_DIR,
                 setting_sources=[],
-                # Windows 上本地沙箱不可用，开启会报 invalid_argument；不传时默认值随启动环境而变，必须显式关闭。
-                # 隔离主要靠 tools=[]
-                sandbox_options=c.SandboxOptions(enabled=sys.platform != "win32"),
+                # 不传时默认值随启动环境而变，必须显式指定；隔离主要靠 tools=[]
+                sandbox_options=c.SandboxOptions(enabled=_sandbox["enabled"]),
             ),
         )
         async with await client.create_agent(options) as agent:
@@ -410,7 +411,14 @@ def _run_cursor(s, system, user, on_text, job):
             finally:
                 watcher.cancel()
 
-    result = _with_cursor(go)
+    try:
+        result = _with_cursor(go)
+    except AiError as e:
+        # Windows 已知不支持本地沙箱；其他系统不确定，遇到同样的报错就关掉沙箱重试一次
+        if not (_sandbox["enabled"] and "sandboxing is not supported" in str(e)):
+            raise
+        _sandbox["enabled"] = False
+        result = _with_cursor(go)
     job.check()
     if result.status != "finished":
         raise AiError(f"分析未完成（{result.status}）：{result.error_message or ''}")

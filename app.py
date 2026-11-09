@@ -257,16 +257,25 @@ def free_port(preferred):
 
 
 def find_browser():
-    candidates = [
-        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-    ]
+    """找一个支持 --app 窗口和 DevTools 的 Chromium 系浏览器；找不到时退回系统默认浏览器。"""
+    if sys.platform == "darwin":
+        apps = ["Google Chrome", "Microsoft Edge", "Chromium", "Brave Browser"]
+        candidates = [f"{root}/Applications/{a}.app/Contents/MacOS/{a}"
+                      for root in ("", os.path.expanduser("~")) for a in apps]
+    else:
+        candidates = [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+        ]
     for c in candidates:
         if os.path.exists(c):
             return c
-    return shutil.which("msedge") or shutil.which("chrome")
+    for name in ("msedge", "google-chrome", "chromium", "chrome"):
+        if shutil.which(name):
+            return shutil.which(name)
+    return None
 
 
 login_flow = LoginFlow(find_browser(), client.login_with_cookie)

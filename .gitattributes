@@ -1,0 +1,4 @@
+# Mac 脚本必须是 LF，否则 bash 会报 $'\r': command not found
+*.command text eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
