@@ -3,11 +3,21 @@
 <head>
 <meta charset="utf-8">
 <title>NGA 阅读器</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") || localStorage.getItem("theme") || "nga";</script>
+<link rel="stylesheet" href="themes.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <aside id="side">
-  <div class="brand">NGA 阅读器</div>
+  <div class="brand">
+    <span>NGA 阅读器</span>
+    <select id="themeSel" class="theme-sel" title="主题">
+      <option value="nga">NGA 经典</option>
+      <option value="light">简洁白</option>
+      <option value="green">护眼绿</option>
+      <option value="dark">深色</option>
+    </select>
+  </div>
 
   <section class="box account">
     <div class="acct-row">

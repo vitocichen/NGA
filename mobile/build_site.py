@@ -104,7 +104,8 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     for name in STATIC_FILES:
         shutil.copy2(os.path.join(here, name), out)
-    shutil.copy2(os.path.join(ROOT, "web", "render.js"), out)
+    for shared in ("render.js", "themes.css"):
+        shutil.copy2(os.path.join(ROOT, "web", shared), out)
     print("站点已生成：", out)
 
 

@@ -10,6 +10,8 @@
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
 <title>NGA 阅读</title>
+<script>document.documentElement.dataset.theme = new URLSearchParams(location.search).get("theme") || localStorage.getItem("m_theme") || "nga";</script>
+<link rel="stylesheet" href="themes.css">
 <link rel="stylesheet" href="m.css">
 </head>
 <body>
@@ -36,6 +38,12 @@
     <button data-range="today">今天</button>
     <button data-range="259200">近 3 天</button>
     <button data-range="604800">近 7 天</button>
+    <select id="themeSel" class="theme-sel" aria-label="主题">
+      <option value="nga">NGA 经典</option>
+      <option value="light">简洁白</option>
+      <option value="green">护眼绿</option>
+      <option value="dark">深色</option>
+    </select>
   </div>
   <div id="meta" class="meta"></div>
 </header>

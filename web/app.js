@@ -409,6 +409,11 @@ function openThread(tid) {
 }
 
 function bind() {
+  $("#themeSel").value = document.documentElement.dataset.theme;
+  $("#themeSel").onchange = () => {
+    document.documentElement.dataset.theme = $("#themeSel").value;
+    localStorage.setItem("theme", $("#themeSel").value);
+  };
   renderThreadSelect();
   $("#tidSelect").onchange = () => openThread($("#tidSelect").value);
   $("#openBtn").onclick = () => {

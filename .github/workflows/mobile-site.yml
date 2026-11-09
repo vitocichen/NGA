@@ -10,6 +10,7 @@ on:
     paths:
       - "mobile/**"
       - "web/render.js"
+      - "web/themes.css"
       - "nga_api.py"
       - ".github/workflows/mobile-site.yml"
 

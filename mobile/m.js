@@ -255,7 +255,20 @@ async function reloadIfUpdated() {
   } catch (e) { /* 离线时保持原样 */ }
 }
 
+// iPhone 状态栏颜色跟随主题顶栏
+function applyTheme(name) {
+  document.documentElement.dataset.theme = name;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue("--side").trim();
+}
+
 function bind() {
+  $("#themeSel").value = document.documentElement.dataset.theme;
+  applyTheme($("#themeSel").value);
+  $("#themeSel").onchange = () => {
+    applyTheme($("#themeSel").value);
+    localStorage.setItem("m_theme", $("#themeSel").value);
+  };
   $("#threadSel").onchange = () => {
     st.tid = $("#threadSel").value;
     localStorage.setItem("m_tid", st.tid);
