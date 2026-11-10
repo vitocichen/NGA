@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import quote
 
 import requests
 
@@ -251,6 +252,46 @@ class NgaClient:
             self.page(tid, page)
         except NgaError:
             pass
+
+    def find_user(self, name):
+        """按昵称找 UID：先查本地昵称表（完全匹配，再忽略大小写），找不到再问 NGA。"""
+        name = (name or "").strip()
+        if not name:
+            raise NgaError("请输入用户昵称")
+        if name.isdigit():
+            return {"uid": name, "name": self.names.get(name, f"UID:{name}")}
+        with self._names_lock:
+            pairs = list(self.names.items())
+        for uid, n in pairs:
+            if n == name:
+                return {"uid": uid, "name": n}
+        lower = [(uid, n) for uid, n in pairs if n.lower() == name.lower()]
+        if len(lower) == 1:
+            return {"uid": lower[0][0], "name": lower[0][1]}
+        similar = [n for _, n in pairs if name.lower() in n.lower()][:8]
+        hint = f"。相近的有：{'、'.join(similar)}" if similar else ""
+        try:
+            q = quote(name.encode("gbk"))
+        except UnicodeEncodeError:
+            raise NgaError("昵称里有 NGA 不支持的字符")
+        # 这个接口连续查询容易被 NGA 限流（HTTP 503），稍等重试
+        for attempt in range(3):
+            try:
+                d = self._fetch_json(f"{HOST}/nuke.php?__lib=ucp&__act=get&username={q}&__output=11")
+                break
+            except NgaError as e:
+                if "找不到用户" in str(e):
+                    raise NgaError(f"找不到用户「{name}」{hint}")
+                if "503" not in str(e) or attempt == 2:
+                    raise NgaError(f"查询用户失败（NGA 限流，稍后再试）{hint}")
+                time.sleep(1.5 * (attempt + 1))
+        row = (d if isinstance(d, list) else [d])[0] or {}
+        uid = str(row.get("uid") or "")
+        if not uid.isdigit():
+            raise NgaError(f"找不到用户「{name}」")
+        self._learn_name(uid, name)
+        self._flush_names()
+        return {"uid": uid, "name": name}
 
     def lookup_names(self, uids):
         with self._names_lock:

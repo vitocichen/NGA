@@ -74,6 +74,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"page": client.locate(q["tid"], int(q["ts"]), q.get("authorid"))})
             elif u.path == "/api/nga/status":
                 self._json({**client.account_status(), "login": login_flow.status()})
+            elif u.path == "/api/user":
+                self._json(client.find_user(q.get("name", "")))
             elif u.path == "/api/names":
                 uids = [x for x in q.get("uids", "").split(",") if x.isdigit()][:300]
                 self._json(client.lookup_names(uids))

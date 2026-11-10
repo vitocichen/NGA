@@ -52,7 +52,11 @@ button {
 .panel-box a { color: var(--link); }
 .panel-box code { padding: 0 4px; border-radius: 3px; background: var(--code-bg); font-size: 12px; }
 .panel-box .hint { display: block; font-size: 12px; color: var(--muted); margin-top: 6px; }
-#tokenInput { width: 100%; height: 38px; margin-top: 6px; padding: 0 10px; font-size: 14px; border: 1px solid var(--line); border-radius: 8px; }
+.user-tab { max-width: 88px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.watch-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 8px; }
+.watch-list button { padding: 4px 12px; border-radius: 14px; font-size: 13px; }
+.uname[data-uid] { cursor: pointer; }
+#tokenInput, .panel-input { width: 100%; height: 38px; margin-top: 6px; padding: 0 10px; font-size: 14px; border: 1px solid var(--line); border-radius: 8px; }
 .panel-actions { display: flex; gap: 8px; margin-top: 10px; }
 .panel-actions button { flex: 1; height: 38px; }
 .panel-actions .primary { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; }

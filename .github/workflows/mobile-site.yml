@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "3,13,23,33,43,53 * * * *"
   workflow_dispatch:
+    inputs:
+      users:
+        description: "加入关注列表的用户昵称（逗号分隔，可留空）"
+        required: false
+        default: ""
   push:
     branches: [main]
     paths:
@@ -40,10 +45,17 @@ jobs:
           key: names-${{ github.run_id }}
           restore-keys: names-
 
+      # 关注用户列表存在 data 分支里，跨次运行保留
+      - name: 读取关注用户列表
+        run: |
+          mkdir -p data
+          git fetch -q --depth 1 origin data && git show FETCH_HEAD:watch.json > data/watch.json || echo "暂无关注列表"
+
       - name: 抓取并生成站点
         run: python mobile/build_site.py --out _site
         env:
           NGA_COOKIE: ${{ secrets.NGA_COOKIE }}
+          NGA_USERS: ${{ inputs.users }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

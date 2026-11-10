@@ -25,6 +25,7 @@
     <div class="seg">
       <button data-mode="all" class="on">全部</button>
       <button data-mode="op">楼主</button>
+      <button data-mode="user" class="user-tab">指定用户</button>
     </div>
     <div class="seg">
       <button data-order="chat" class="on">最新在下</button>
@@ -57,6 +58,20 @@
   <button id="toBottom" title="底部">↓</button>
 </div>
 <div id="lightbox" class="hidden"><img alt=""></div>
+
+<div id="userPanel" class="panel hidden">
+  <div class="panel-box">
+    <h3>只看指定用户</h3>
+    <p class="hint">关注列表（每次自动更新时都会刷新近 7 天的发言，最多 5 人，3 天不看自动移除）：</p>
+    <div id="watchList" class="watch-list"></div>
+    <input id="userName" class="panel-input" placeholder="输入用户昵称" autocomplete="off">
+    <div class="panel-actions">
+      <button id="userCancel">取消</button>
+      <button id="userOk" class="primary">查看</button>
+    </div>
+    <p class="hint">新用户需要已设置「强制更新」Token，约 1 分钟后显示近 7 天完整发言；没有 Token 时只能在已同步的最近几百楼里找。也可以直接点楼层里的用户名。</p>
+  </div>
+</div>
 
 <div id="tokenPanel" class="panel hidden">
   <div class="panel-box">

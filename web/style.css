@@ -129,7 +129,8 @@ input:focus, select:focus { border-color: var(--quote-border); }
   font-weight: 700;
 }
 .post.op .uname { color: var(--op); }
-.ustat {
+.uname[data-uid] { cursor: pointer; }
+.uname[data-uid]:hover { text-decoration: underline; }.ustat {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0 6px;

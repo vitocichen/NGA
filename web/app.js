@@ -95,7 +95,7 @@ function postHtml(p, isNew) {
   <div class="post${isNew ? " new" : ""}${isOp ? " op" : ""}" id="l${p.lou}" data-lou="${p.lou}">
     <div class="poster" title="${esc(tip)}">
       <div class="utop">
-        <span class="uname" data-uid="${esc(p.authorid)}">${esc(name)}</span>
+        <span class="uname" data-uid="${esc(p.authorid)}" title="点击只看此人">${esc(name)}</span>
         ${isOp ? '<span class="tag op">楼主</span>' : ""}
         ${u && u.muted ? '<span class="tag muted">禁言</span>' : ""}
       </div>
@@ -165,8 +165,21 @@ function applyMeta(d) {
   if (!state.authorid) $("#topicRows").textContent = `${d.rows_total} 楼 / ${d.pages} 页`;
 }
 
+// 当前只看的是谁：null=全部，op=楼主，user=指定用户
+function viewKind() {
+  if (!state.authorid) return null;
+  return state.topic && state.authorid === state.topic.authorid ? "op" : "user";
+}
+function viewWho() {
+  const k = viewKind();
+  return k === "op" ? "楼主" : k === "user" ? (state.viewUser && state.viewUser.name) || `UID:${state.authorid}` : "";
+}
+function setRowsText(rows) {
+  if (state.authorid) $("#topicRows").textContent = `${viewWho()}共 ${rows} 楼`;
+}
+
 function describeView() {
-  const who = state.authorid ? "只看楼主" : "全部发言";
+  const who = state.authorid ? `只看${viewWho()}` : "全部发言";
   const ord = { chat: "最新在下", desc: "最新在上", asc: "从头看" }[state.order];
   let range = "不限时间";
   if (state.from || state.to) range = `${state.from ? fmtTime(state.from) : "最早"} ~ ${state.to ? fmtTime(state.to) : "现在"}`;
@@ -208,7 +221,7 @@ async function startView(opts = {}) {
     const last = await api("page", { tid: state.tid, page: "e", authorid: state.authorid, fresh: 1 });
     if (gen !== state.gen) return;
     applyMeta(last);
-    if (state.authorid) $("#topicRows").textContent = `楼主共 ${last.rows_total} 楼`;
+    setRowsText(last.rows_total);
     state.latestLou = Math.max(-1, ...last.posts.map((p) => p.lou));
 
     let start;
@@ -225,6 +238,9 @@ async function startView(opts = {}) {
   } catch (e) {
     if (gen !== state.gen) return;
     state.loading = false;
+    if (state.authorid && /找不到内容|没有更多页/.test(e.message)) {
+      return updateFooter(`<span class="err">${esc(viewWho() || "这个用户")}在本帖没有发言</span>　<a href="#" onclick="$('#allBtn').click();return false">查看全部</a>`);
+    }
     updateFooter(`<span class="err">读取失败：${esc(e.message)}</span>　<a href="#" onclick="startView();return false">重试</a>`);
   }
 }
@@ -296,7 +312,7 @@ async function refresh() {
   try {
     const last = await api("page", { tid: state.tid, page: "e", authorid: state.authorid, fresh: 1 });
     applyMeta(last);
-    if (state.authorid) $("#topicRows").textContent = `楼主共 ${last.rows_total} 楼`;
+    setRowsText(last.rows_total);
     let collected = last.posts.filter((p) => p.lou > state.latestLou);
     let pagePosts = last.posts;
     let pg = last.page;
@@ -431,6 +447,29 @@ function bind() {
     setMode();
     startView();
   };
+  $("#userBtn").onclick = () => {
+    $("#userRow").classList.toggle("hidden");
+    if (!$("#userRow").classList.contains("hidden")) $("#userInput").focus();
+  };
+  $("#userGo").onclick = async () => {
+    const name = $("#userInput").value.trim();
+    if (!name) return toast("请输入昵称");
+    $("#userGo").disabled = true;
+    try {
+      viewUser(await api("user", { name }));
+    } catch (e) {
+      toast(e.message, 5000);
+    } finally {
+      $("#userGo").disabled = false;
+    }
+  };
+  $("#userInput").addEventListener("keydown", (e) => e.key === "Enter" && $("#userGo").click());
+  // 点楼层里的用户名：只看这个人
+  $("#feed").addEventListener("click", (e) => {
+    const el = e.target.closest(".uname[data-uid]");
+    if (!el) return;
+    viewUser({ uid: el.dataset.uid, name: el.textContent });
+  });
   $$(".order").forEach((b) => b.onclick = () => {
     state.order = b.dataset.order;
     $$(".order").forEach((x) => x.classList.toggle("active", x === b));
@@ -610,9 +649,21 @@ function bindAccount() {
   };
 }
 
+function viewUser(u) {
+  if (state.topic && u.uid === state.topic.authorid) return $("#opBtn").click();
+  state.authorid = u.uid;
+  state.viewUser = u;
+  $("#userInput").value = u.name;
+  setMode();
+  startView();
+}
+
 function setMode() {
-  $("#allBtn").classList.toggle("active", !state.authorid);
-  $("#opBtn").classList.toggle("active", !!state.authorid);
+  const k = viewKind();
+  $("#allBtn").classList.toggle("active", !k);
+  $("#opBtn").classList.toggle("active", k === "op");
+  $("#userBtn").classList.toggle("active", k === "user");
+  $("#userRow").classList.toggle("hidden", k !== "user" && !$("#userInput").matches(":focus"));
 }
 
 (async function init() {
@@ -629,6 +680,15 @@ function setMode() {
     const last = await api("page", { tid: state.tid, page: "e" });
     state.authorid = last.authorid;
     setMode();
+  }
+  if (qs.get("user")) {
+    try {
+      const u = await api("user", { name: qs.get("user") });
+      state.authorid = u.uid;
+      state.viewUser = u;
+      $("#userInput").value = u.name;
+      setMode();
+    } catch (e) { toast(e.message, 5000); }
   }
   if (range) document.querySelector(`[data-range="${range}"]`)?.click();
   else startView();
