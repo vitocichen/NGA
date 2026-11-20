@@ -1,0 +1,23 @@
+/* 实时版在 m.css 基础上的补充 */
+#menuBtn { height: 34px; padding: 0 12px; flex: none; font-size: 18px; line-height: 1; }
+#reloadBtn { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; }
+.row-l { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; }
+.row-l select { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--ink); }
+.row-l .inline { display: flex; gap: 6px; flex: 1; justify-content: flex-end; }
+.row-l .inline input { margin: 0; max-width: 170px; }
+.post.new { background: var(--newbg); border-color: var(--notice-border); }
+#newTip {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 24px);
+  z-index: 15;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 18px;
+  background: var(--brown);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.meta .live { color: #2e9a4f; font-weight: 700; }

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<!-- NGA_LIVE：实时版。由 Scriptable 以 https://bbs.nga.cn/ 为 baseURL 加载，页面内请求 NGA 属于同源，不受跨域限制。
+     因为 baseURL 是 NGA，本页引用的静态资源必须写 GitHub Pages 的绝对地址。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NGA 实时</title>
+<script>document.documentElement.dataset.theme = localStorage.getItem("live_theme") || "nga";</script>
+<link rel="stylesheet" href="https://vitocichen.github.io/NGA/themes.css">
+<link rel="stylesheet" href="https://vitocichen.github.io/NGA/m.css">
+<link rel="stylesheet" href="https://vitocichen.github.io/NGA/live.css">
+</head>
+<body>
+<header id="top">
+  <div class="bar">
+    <select id="threadSel"></select>
+    <button id="reloadBtn">刷新</button>
+    <button id="menuBtn" title="更多">⋯</button>
+  </div>
+  <div class="bar tabs">
+    <div class="seg">
+      <button data-mode="all" class="on">全部</button>
+      <button data-mode="op">楼主</button>
+      <button data-mode="user" class="user-tab">指定用户</button>
+    </div>
+    <div class="seg">
+      <button data-order="chat" class="on">最新在下</button>
+      <button data-order="desc">最新在上</button>
+    </div>
+  </div>
+  <div class="bar chips">
+    <button data-range="0" class="on">全部时间</button>
+    <button data-range="3600">近 1 小时</button>
+    <button data-range="10800">近 3 小时</button>
+    <button data-range="today">今天</button>
+    <button data-range="259200">近 3 天</button>
+    <button data-range="604800">近 7 天</button>
+  </div>
+  <div id="meta" class="meta"></div>
+</header>
+
+<div id="newTip" class="hidden"></div>
+<div id="topMore"></div>
+<main id="feed"></main>
+<div id="more"></div>
+
+<div id="nav">
+  <button id="toTop">↑</button>
+  <button id="toBottom">↓</button>
+</div>
+<div id="lightbox" class="hidden"><img alt=""></div>
+
+<div id="menuPanel" class="panel hidden">
+  <div class="panel-box">
+    <h3>设置</h3>
+    <label class="row-l">自动刷新
+      <select id="autoSel">
+        <option value="0">关闭</option>
+        <option value="15">每 15 秒</option>
+        <option value="30" selected>每 30 秒</option>
+        <option value="60">每 60 秒</option>
+      </select>
+    </label>
+    <label class="row-l">主题
+      <select id="themeSel">
+        <option value="nga">NGA 经典</option>
+        <option value="light">简洁白</option>
+        <option value="green">护眼绿</option>
+        <option value="dark">深色</option>
+      </select>
+    </label>
+    <div class="row-l">打开其他帖子
+      <span class="inline"><input id="tidInput" class="panel-input" placeholder="帖子链接或 tid"><button id="tidGo">打开</button></span>
+    </div>
+    <div class="row-l"><span id="acctText">NGA 账号：检查中…</span><button id="loginBtn">登录 NGA</button></div>
+    <p class="hint">未登录时 NGA 不返回用户名，部分人显示为 UID。登录完成后，点左上角「完成」关掉窗口，再重新运行脚本即可。</p>
+    <div class="panel-actions"><button id="menuClose" class="primary">关闭</button></div>
+  </div>
+</div>
+
+<div id="userPanel" class="panel hidden">
+  <div class="panel-box">
+    <h3>只看指定用户</h3>
+    <input id="userName" class="panel-input" placeholder="输入昵称或 UID" autocomplete="off">
+    <div class="panel-actions">
+      <button id="userCancel">取消</button>
+      <button id="userOk" class="primary">查看</button>
+    </div>
+    <p class="hint">昵称需要在本帖出现过（会从已加载的楼层和引用里匹配）；也可以直接点楼层里的用户名。</p>
+  </div>
+</div>
+
+<script src="https://vitocichen.github.io/NGA/render.js"></script>
+<script src="https://vitocichen.github.io/NGA/live.js"></script>
+</body>
+</html>

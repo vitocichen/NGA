@@ -23,7 +23,8 @@ OP_MAX_PAGES = 20
 WATCH_MAX = 5
 WATCH_DAYS = 3
 WATCH_FILE = os.path.join(ROOT, "data", "watch.json")
-STATIC_FILES = ["index.html", "m.css", "m.js", "manifest.json", "icon-180.png", "icon-512.png"]
+STATIC_FILES = ["index.html", "m.css", "m.js", "manifest.json", "icon-180.png", "icon-512.png",
+                "live.html", "live.css", "live.js", "install.html", "scriptable.js"]
 
 
 def collect(client, tid, authorid, pages, since=0):
@@ -146,6 +147,9 @@ def main():
         json.dump(watch, f, ensure_ascii=False)
     with open(os.path.join(out, "data", "smiles.json"), "w", encoding="utf-8") as f:
         json.dump(client.smiles(), f, ensure_ascii=False)
+    # 实时版以游客身份直连 NGA 拿不到用户名，开页时合并这份（登录身份抓取积累的）昵称表
+    with open(os.path.join(out, "data", "names.json"), "w", encoding="utf-8") as f:
+        json.dump(client.names, f, ensure_ascii=False, separators=(",", ":"))
 
     here = os.path.dirname(os.path.abspath(__file__))
     for name in STATIC_FILES:

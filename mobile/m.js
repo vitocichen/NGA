@@ -153,7 +153,8 @@ function renderMeta() {
     note = `<br><span class="stale">全部发言只同步了最近约 ${Math.max(1, Math.round(span / 3600))} 小时，看更长时间请切到「楼主」</span>`;
   }
   $("#meta").innerHTML = `共 <b>${d.rows_total}</b> 楼 · 显示${scope}中的 <b>${st.list.length}</b> 条 · `
-    + `<span class="${stale ? "stale" : ""}">数据更新于 ${fmt(up)}（${ago(up)}）</span>${note}`;
+    + `<span class="${stale ? "stale" : ""}">数据更新于 ${fmt(up)}（${ago(up)}）</span>`
+    + ` · <a href="install.html" style="color:var(--link)">实时版</a>${note}`;
 }
 
 // 按 authorid 抓取时 NGA 返回的 lou 是此人在本帖的第几帖，不是全帖楼层
