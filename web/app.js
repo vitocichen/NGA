@@ -155,6 +155,7 @@ setInterval(fillUnknownNames, 15000);
 // ---------- 视图与加载 ----------
 function applyMeta(d) {
   state.topic = { title: d.title, author: d.author, authorid: d.authorid, forum: d.forum, lastpost: d.lastpost, rows: d.rows_total, pages: d.pages, perPage: d.per_page };
+  if (d.fid) state.fid = String(d.fid);
   Object.assign(state.users, d.users);
   document.title = d.title ? `${d.title} - NGA 阅读器` : "NGA 阅读器";
   if (d.title && !recentThreads().some((t) => t.tid === state.tid && t.title === d.title)) rememberThread(state.tid, d.title);
@@ -327,17 +328,19 @@ async function refresh() {
 
     let shown = 0;
     if (state.order === "chat" && (!state.to || state.to >= nowTs())) {
-      const stick = isAtBottom();
+      // 在看帖子列表时帖子在后台刷新，不能动列表的滚动位置
+      const inList = state.view === "list";
+      const stick = !inList && isAtBottom();
       shown = renderPosts(collected, "bottom", true);
       if (stick) scrollToBottom();
-      else if (shown) showBanner(shown, "bottom");
+      else if (shown && !inList) showBanner(shown, "bottom");
     } else if (state.order === "desc" && (!state.to || state.to >= nowTs())) {
       const main = $("#main");
       const keep = main.scrollTop > 40;
       const h0 = main.scrollHeight;
       shown = renderPosts([...collected].reverse(), "top", true);
       if (keep) main.scrollTop += main.scrollHeight - h0;
-      if (keep && shown) showBanner(shown, "top");
+      if (keep && shown && state.view !== "list") showBanner(shown, "top");
     } else if (state.order === "asc" && state.done && !state.to) {
       shown = renderPosts(collected, "bottom", true);
     } else if (collected.length) {
@@ -416,12 +419,149 @@ function renderThreadSelect() {
 }
 
 function openThread(tid) {
+  showThreadView();
   state.tid = tid;
   localStorage.setItem("tid", tid);
   state.authorid = null;
   setMode();
   renderThreadSelect();
   startView();
+}
+
+// ---------- 版面帖子列表 ----------
+// 子版面在接口里返回的是上级版面名（如「杂谈」），常用的写死显示名
+const FORUM_NAMES = { "510567": "[股市]技术分析" };
+const LIST_REFRESH_SEC = 30;
+const lst = { fid: "510567", forum: "", topics: new Map(), page: 0, pages: 1, loading: false, loaded: false,
+  scroll: 0, refreshedAt: 0 };
+
+function agoText(ts) {
+  const s = nowTs() - ts;
+  if (s < 60) return "刚刚";
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  return fmtTime(ts).slice(5);
+}
+
+function topicRow(t, updated) {
+  const pages = Math.ceil((t.replies + 1) / 20);
+  const cur = t.tid === state.tid;
+  return `<div class="trow${updated ? " updated" : ""}${cur ? " current" : ""}" data-tid="${esc(t.tid)}">
+    <div class="t-replies">${t.replies}</div>
+    <div class="t-main">
+      <div class="t-subject">${cur ? '<span class="t-tag">正在看</span>' : ""}${esc(t.subject)}${pages > 1 ? `<span class="t-pages">[${pages} 页]</span>` : ""}</div>
+      <div class="t-author">${esc(t.author)} · 发表于 ${fmtTime(t.postdate).slice(5)}</div>
+    </div>
+    <div class="t-last"><b>${esc(t.lastposter)}</b>${agoText(t.lastpost)}</div>
+  </div>`;
+}
+
+function renderList(updated) {
+  const list = [...lst.topics.values()].sort((a, b) => b.lastpost - a.lastpost);
+  $("#listFeed").innerHTML = list.map((t) => topicRow(t, updated && updated.has(t.tid))).join("")
+    || `<div class="list-more">${lst.loading ? "加载中…" : "没有帖子"}</div>`;
+  const forum = FORUM_NAMES[lst.fid] || lst.forum;
+  $("#listTitle").textContent = forum ? `${forum} · 帖子列表` : "帖子列表";
+  const t = lst.refreshedAt ? new Date(lst.refreshedAt).toLocaleTimeString() : "--";
+  $("#listMeta").innerHTML = `<span class="live">● 实时</span> · 按最后回复排序 · 已加载 ${list.length} 帖`
+    + ` · 刷新于 ${t}（每 ${LIST_REFRESH_SEC} 秒自动） · 点帖子打开`;
+  $("#listMore").textContent = lst.loading ? "加载中…" : lst.page >= lst.pages ? "没有更多了" : "继续下滑加载更多";
+}
+
+async function loadListPage() {
+  if (lst.loading || lst.page >= lst.pages) return;
+  lst.loading = true;
+  renderList();
+  try {
+    const d = await api("forum", { fid: lst.fid, page: lst.page + 1 });
+    lst.forum = d.forum || lst.forum;
+    lst.pages = d.pages;
+    lst.page += 1;
+    for (const t of d.topics) if (!lst.topics.has(t.tid)) lst.topics.set(t.tid, t);
+    lst.refreshedAt = lst.refreshedAt || Date.now();
+  } catch (e) {
+    toast(`加载帖子列表失败：${e.message}`, 4000);
+  } finally {
+    lst.loading = false;
+    renderList();
+  }
+}
+
+async function refreshList(manual) {
+  if (lst.loading) return;
+  if (manual) { $("#listReload").disabled = true; $("#listReload").textContent = "刷新中…"; }
+  try {
+    const d = await api("forum", { fid: lst.fid, page: 1 });
+    lst.pages = d.pages;
+    const updated = new Set();
+    for (const t of d.topics) {
+      const old = lst.topics.get(t.tid);
+      if (!old || t.lastpost > old.lastpost) updated.add(t.tid);
+      lst.topics.set(t.tid, t);
+    }
+    lst.refreshedAt = Date.now();
+    renderList(updated);
+  } catch (e) {
+    if (manual) toast(`刷新失败：${e.message}`, 4000);
+  } finally {
+    if (manual) { $("#listReload").disabled = false; $("#listReload").textContent = "刷新"; }
+  }
+}
+
+function setView(list) {
+  state.view = list ? "list" : "thread";
+  $("#listView").classList.toggle("hidden", !list);
+  ["#feed", "#topSentinel", "#sentinel"].forEach((s) => $(s).classList.toggle("hidden", list));
+  if (list) { $("#newBanner").classList.add("hidden"); $("#posInfo").classList.add("hidden"); }
+  $("#backBtn").textContent = list ? "‹ 回到正在看的帖子" : "‹ 返回帖子列表";
+}
+
+async function showListView() {
+  const fid = state.fid || lst.fid;
+  if (fid !== lst.fid) Object.assign(lst, { fid, forum: "", topics: new Map(), page: 0, pages: 1, loaded: false, scroll: 0 });
+  state.threadScroll = $("#main").scrollTop;
+  setView(true);
+  if (!lst.loaded) {
+    lst.loaded = true;
+    $("#main").scrollTop = 0;
+    await loadListPage();
+    $("#main").scrollTop = 0;
+  } else {
+    renderList();
+    $("#main").scrollTop = lst.scroll;
+    refreshList(false);
+  }
+}
+
+function showThreadView() {
+  if (state.view !== "list") return;
+  lst.scroll = $("#main").scrollTop;
+  setView(false);
+}
+
+function bindList() {
+  $("#backBtn").onclick = () => {
+    if (state.view !== "list") return showListView();
+    showThreadView();
+    $("#main").scrollTop = state.threadScroll || 0;
+  };
+  $("#listReload").onclick = () => refreshList(true);
+  $("#listFeed").addEventListener("click", (e) => {
+    const row = e.target.closest(".trow[data-tid]");
+    if (!row) return;
+    if (row.dataset.tid === state.tid) {
+      showThreadView();
+      $("#main").scrollTop = state.threadScroll || 0;
+      return;
+    }
+    openThread(row.dataset.tid);
+  });
+  $("#main").addEventListener("scroll", () => {
+    if (state.view !== "list") return;
+    const m = $("#main");
+    if (m.scrollHeight - m.scrollTop - m.clientHeight < 600) loadListPage();
+  });
+  setInterval(() => { if (state.view === "list" && !document.hidden) refreshList(false); }, LIST_REFRESH_SEC * 1000);
 }
 
 function bind() {
@@ -536,7 +676,7 @@ function bind() {
   });
   // 图片/表情加载会撑高内容，停在底部时继续贴底
   document.addEventListener("load", (e) => {
-    if (e.target instanceof HTMLImageElement && state.order === "chat" && state.atBottom) scrollToBottom();
+    if (e.target instanceof HTMLImageElement && state.view !== "list" && state.order === "chat" && state.atBottom) scrollToBottom();
   }, true);
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("input, select, textarea")) return;
@@ -672,6 +812,7 @@ function setMode() {
   if (["asc", "desc", "chat"].includes(qs.get("order"))) state.order = qs.get("order");
   $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === state.order));
   bind();
+  bindList();
   bindAccount();
   refreshAccount().then((s) => { if (s && s.login.state === "waiting") pollLogin(); });
   try { state.smiles = window.SMILES = await api("smiles", {}); } catch (e) { console.warn("表情表加载失败", e); }
@@ -691,5 +832,6 @@ function setMode() {
     } catch (e) { toast(e.message, 5000); }
   }
   if (range) document.querySelector(`[data-range="${range}"]`)?.click();
-  else startView();
+  else await startView();
+  if (qs.get("view") === "list") showListView();
 })();

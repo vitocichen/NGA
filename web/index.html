@@ -37,6 +37,7 @@
   </section>
 
   <section class="box topic">
+    <button id="backBtn" class="btn wide back-btn" title="查看版面里的其他帖子">‹ 返回帖子列表</button>
     <div id="topicTitle" class="ttl">未加载</div>
     <div class="meta"><span>楼主</span><b id="topicAuthor">-</b></div>
     <div class="meta"><span>版面</span><b id="topicForum">-</b></div>
@@ -118,6 +119,17 @@
 </aside>
 
 <main id="main">
+  <section id="listView" class="hidden">
+    <div class="list-head">
+      <div>
+        <div id="listTitle" class="list-title">帖子列表</div>
+        <div id="listMeta" class="list-meta"></div>
+      </div>
+      <button id="listReload" class="btn small">刷新</button>
+    </div>
+    <div id="listFeed"></div>
+    <div id="listMore" class="list-more"></div>
+  </section>
   <div id="newBanner" class="banner hidden"></div>
   <div id="topSentinel"><span id="topText"></span></div>
   <div id="feed"></div>

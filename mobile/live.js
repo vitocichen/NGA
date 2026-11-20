@@ -473,32 +473,22 @@ function setAuto() {
 }
 
 // ---------- 帖子与用户 ----------
-function threadList() {
-  let recent = [];
-  try { recent = JSON.parse(localStorage.getItem("live_threads") || "[]"); } catch (e) { recent = []; }
-  const ids = new Set(PRESETS.map((t) => t.tid));
-  return PRESETS.concat(recent.filter((t) => !ids.has(t.tid)));
+function knownTitle(tid) {
+  const t = lst.topics.get(tid) || PRESETS.find((x) => x.tid === tid);
+  return t ? (t.subject || t.title) : "";
+}
+function setTitle(title) {
+  $("#threadTitle").textContent = title || knownTitle(st.tid) || `帖子 ${st.tid}`;
 }
 function rememberThread(tid, title) {
-  if (!title) return;
-  let recent = [];
-  try { recent = JSON.parse(localStorage.getItem("live_threads") || "[]"); } catch (e) { recent = []; }
-  recent = [{ tid, title }].concat(recent.filter((t) => t.tid !== tid)).slice(0, 10);
-  localStorage.setItem("live_threads", JSON.stringify(recent));
-  renderThreads();
-}
-function renderThreads() {
-  const list = threadList();
-  if (!list.some((t) => t.tid === st.tid)) list.unshift({ tid: st.tid, title: `帖子 ${st.tid}` });
-  $("#threadSel").innerHTML = list.map((t) => `<option value="${esc(t.tid)}">${esc(t.title)}</option>`).join("");
-  $("#threadSel").value = st.tid;
+  if (title && tid === st.tid) setTitle(title);
 }
 function openThread(tid) {
   st.tid = tid;
   localStorage.setItem("live_tid", tid);
   showView("thread");
   setMode("all");
-  renderThreads();
+  setTitle();
   start();
 }
 
@@ -531,7 +521,6 @@ async function checkAccount() {
 
 // ---------- 事件 ----------
 function bind() {
-  $("#threadSel").onchange = () => openThread($("#threadSel").value);
   $("#reloadBtn").onclick = () => refresh(true);
   $$(".menuBtn").forEach((b) => b.onclick = () => { checkAccount(); $("#menuPanel").classList.remove("hidden"); });
   $("#backBtn").onclick = () => showList(st.fid || lst.fid);
@@ -637,7 +626,7 @@ function bind() {
 
 (async function init() {
   bind();
-  renderThreads();
+  setTitle();
   const pages = "https://vitocichen.github.io/NGA/data/";
   const [smiles, remoteNames] = await Promise.all([
     fetch(`${pages}smiles.json`).then((r) => r.json()).catch(() => null),

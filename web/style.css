@@ -310,6 +310,30 @@ summary { cursor: pointer; color: var(--brown2); }
 #lightbox img { max-width: 94vw; max-height: 94vh; }
 .err { color: var(--op); }
 
+/* ---------- 版面帖子列表 ---------- */
+.back-btn { margin-bottom: 8px; font-weight: 700; }
+#listView { max-width: 1080px; margin: 0 auto; }
+.list-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.list-title { font-size: 16px; font-weight: 700; color: var(--brown); }
+.list-meta { font-size: 11.5px; color: var(--muted); }
+.list-meta .live { color: #2e9a4f; font-weight: 700; }
+#listFeed { border: 1px solid var(--line); border-bottom: none; }
+.trow { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); background: var(--row1); cursor: pointer; }
+.trow:nth-child(even) { background: var(--row2); }
+.trow:hover { background: var(--table-hover); }
+.trow.updated { background: var(--newbg); }
+.trow.current { box-shadow: inset 3px 0 0 var(--brown); }
+.t-replies { width: 76px; flex: none; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 700; color: var(--brown2); background: var(--poster); border-right: 1px solid var(--line); }
+.trow:nth-child(even) .t-replies { background: var(--poster2); }
+.t-main { flex: 1; min-width: 0; padding: 8px 12px; }
+.t-subject { font-size: 13.5px; color: var(--ink); line-height: 1.5; }
+.t-subject .t-pages { margin-left: 6px; font-size: 11px; color: var(--muted); }
+.t-subject .t-tag { margin-right: 5px; padding: 0 5px; border-radius: 3px; background: var(--brown2); color: var(--on-accent); font-size: 11px; font-weight: 700; }
+.t-author { margin-top: 2px; font-size: 11.5px; color: var(--muted); }
+.t-last { width: 170px; flex: none; padding: 8px 12px; font-size: 11.5px; color: var(--muted); text-align: right; border-left: 1px dashed var(--table-line); }
+.t-last b { display: block; color: var(--brown2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-more { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; }
+
 /* ---------- NGA 账号 ---------- */
 .acct-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }
 #acctText { font-weight: 700; color: var(--brown2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

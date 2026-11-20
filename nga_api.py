@@ -1,3 +1,4 @@
+import html
 import json
 import math
 import os
@@ -252,6 +253,28 @@ class NgaClient:
             self.page(tid, page)
         except NgaError:
             pass
+
+    def forum(self, fid, page=1):
+        """版面帖子列表（按最后回复排序），每次都实时请求。"""
+        d = self._fetch_json(f"{HOST}/thread.php?fid={fid}&page={page}&__output=11")
+        rows = d.get("__T") or []
+        rows = list(rows.values()) if isinstance(rows, dict) else rows
+        per = d.get("__T__ROWS_PAGE") or 35
+        topics = []
+        for t in rows:
+            if not isinstance(t, dict) or not t.get("tid"):
+                continue
+            if t.get("authorid") and t.get("author"):
+                self._learn_name(t["authorid"], t["author"])
+            topics.append({
+                "tid": str(t["tid"]), "subject": html.unescape(str(t.get("subject") or "")),
+                "author": t.get("author") or "", "authorid": str(t.get("authorid") or ""),
+                "postdate": t.get("postdate") or 0, "lastpost": t.get("lastpost") or 0,
+                "lastposter": t.get("lastposter") or "", "replies": t.get("replies") or 0,
+            })
+        self._flush_names()
+        return {"fid": str(fid), "forum": (d.get("__F") or {}).get("name", ""), "page": int(page),
+                "pages": max(1, math.ceil((d.get("__ROWS") or len(topics)) / per)), "topics": topics}
 
     def find_user(self, name):
         """按昵称找 UID：先查本地昵称表（完全匹配，再忽略大小写），找不到再问 NGA。"""
