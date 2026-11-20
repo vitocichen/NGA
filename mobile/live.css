@@ -4,6 +4,16 @@
 #reloadBtn, #listReload { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; height: 34px; flex: none; }
 .list-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: var(--brown); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* 帖子列表顶栏和帖子页顶栏一样，让出 iPhone 状态栏（刘海/灵动岛）区域 */
+#listTop {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  padding: calc(env(safe-area-inset-top) + 6px) 10px 6px;
+  background: var(--side);
+  border-bottom: 1px solid var(--line);
+}
+
 /* 帖子列表 */
 #listFeed { padding: 8px 0; }
 .topic {
@@ -48,6 +58,28 @@
 .qgo { display: inline; margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--brown2); opacity: .75; }
 .qhead .qgo { float: right; }
 .at[data-uid] { cursor: pointer; }
+/* 登录面板：NGA 官方登录页嵌在 iframe 里 */
+.login-box { display: flex; flex-direction: column; height: 88vh; max-height: 88vh; padding: 10px 12px; }
+.login-head { display: flex; align-items: center; justify-content: space-between; }
+.login-head h3 { margin: 0; }
+.login-head button { height: 32px; }
+#loginFrame { flex: 1; width: 100%; margin-top: 8px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.login-msg { margin-top: 8px; padding: 8px 10px; border-radius: 8px; font-size: 13.5px; font-weight: 600; background: var(--notice); border: 1px solid var(--notice-border); color: var(--ink); }
+.login-msg.err { background: var(--warn-bg); border-color: var(--warn-border); color: var(--op); }
+#toast {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top) + 14px);
+  z-index: 60;
+  max-width: 86vw;
+  transform: translateX(-50%);
+  padding: 8px 16px;
+  border-radius: 10px;
+  background: var(--toast);
+  color: var(--on-accent);
+  font-size: 13.5px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, .3);
+}
 #nav #jumpBack { background: var(--brown2); opacity: 1; }
 #nav #jumpBtn { font-size: 17px; }
 .post.hit { animation: post-hit 2.6s ease-out; }

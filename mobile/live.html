@@ -86,10 +86,23 @@
       <span class="inline"><input id="tidInput" class="panel-input" placeholder="帖子链接或 tid"><button id="tidGo">打开</button></span>
     </div>
     <div class="row-l"><span id="acctText">NGA 账号：检查中…</span><button id="loginBtn">登录 NGA</button></div>
-    <p class="hint">未登录时 NGA 不返回用户名，部分人显示为 UID。登录完成后，点左上角「完成」关掉窗口，再重新运行脚本即可。</p>
+    <p class="hint">未登录时 NGA 不返回用户名，部分人显示为 UID。登录后会一直保持，下次打开不用再登录。</p>
     <div class="panel-actions"><button id="menuClose" class="primary">关闭</button></div>
   </div>
 </div>
+
+<div id="loginPanel" class="panel hidden">
+  <div class="panel-box login-box">
+    <div class="login-head">
+      <h3>登录 NGA</h3>
+      <button id="loginClose">关闭</button>
+    </div>
+    <div id="loginMsg" class="login-msg hidden"></div>
+    <iframe id="loginFrame" title="NGA 登录"></iframe>
+    <p class="hint">这是 NGA 官方登录页，账号密码只提交给 NGA。登录成功后会自动关闭并重新加载帖子。</p>
+  </div>
+</div>
+<div id="toast" class="hidden"></div>
 
 <div id="jumpPanel" class="panel hidden">
   <div class="panel-box">

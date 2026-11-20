@@ -668,11 +668,88 @@ function resolveUser(name) {
   return part.length === 1 ? part[0] : part.length ? { many: part.slice(0, 8) } : null;
 }
 
+function toast(msg, ms = 3500) {
+  const t = $("#toast");
+  t.textContent = msg;
+  t.classList.remove("hidden");
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.add("hidden"), ms);
+}
+
+// ---------- NGA 登录 ----------
+// NGA 官方登录页 account_copy.html 放进同源 iframe：它通过 parent.__API 取参数、报告登录成功（与 NGA 网页版外层页面一致）。
+// 它的所有提示都用 alert，App 内嵌的 WebView 常常不显示 alert，这里接管过来显示在面板里。
+const LOGIN_FRAME_URL = "https://bbs.nga.cn/nuke/account_copy.html?login";
+const loggedUid = () => { const m = document.cookie.match(/(?:^|;\s*)ngaPassportUid=(\d+)/); return m ? m[1] : ""; };
+
+function loginMsg(text, isErr) {
+  const el = $("#loginMsg");
+  el.textContent = text;
+  el.classList.toggle("err", !!isErr);
+  el.classList.remove("hidden");
+}
+
+window.__API = {
+  get(name, arg) {
+    let a = {};
+    if (arg) { try { a = new Function(`return (${arg})`)(); } catch (e) { a = {}; } }
+    switch (name) {
+      case "appid": return "5004";
+      case "style": return "web";
+      case "userAgent": return navigator.userAgent;
+      case "loginSuccess": onNgaLogin(a); return "";
+      default: return "";
+    }
+  },
+  getAsync(name, arg, callback) {
+    $("#loginFrame").contentWindow[callback](name, arg, this.get(name, arg));
+  },
+};
+
+async function onNgaLogin(a) {
+  if (!a || !a.uid || !a.token) return loginMsg("NGA 返回的登录信息不完整，请再试一次", true);
+  loginMsg("登录成功，正在保存登录状态…");
+  try {
+    await fetch("/nuke.php?__lib=login&__act=login_set_cookie_quick&__output=11", {
+      method: "POST", credentials: "include", body: new URLSearchParams({ uid: a.uid, cid: a.token }),
+    });
+  } catch (e) { /* 下面兜底 */ }
+  if (loggedUid() !== String(a.uid)) {
+    const opt = `; path=/; domain=.nga.cn; max-age=${3600 * 24 * 365}; secure`;
+    document.cookie = `ngaPassportUid=${a.uid}${opt}`;
+    document.cookie = `ngaPassportCid=${a.token}${opt}`;
+  }
+  if (loggedUid() !== String(a.uid)) return loginMsg("NGA 显示登录成功，但登录状态没能保存，请关闭后重新运行脚本再试", true);
+  closeLogin();
+  checkAccount();
+  toast("登录成功，正在重新加载");
+  if (st.view === "list") refreshList(true); else start();
+}
+
+function openLogin() {
+  $("#menuPanel").classList.add("hidden");
+  $("#loginMsg").classList.add("hidden");
+  const f = $("#loginFrame");
+  f.onload = () => {
+    try {
+      const w = f.contentWindow;
+      w.alert = (m) => loginMsg(String(m), !/成功/.test(String(m)));
+    } catch (e) { /* 非同源时接管不了，保持原样 */ }
+  };
+  f.src = LOGIN_FRAME_URL;
+  $("#loginPanel").classList.remove("hidden");
+}
+function closeLogin() {
+  $("#loginPanel").classList.add("hidden");
+  $("#loginFrame").src = "about:blank";
+}
+
 async function checkAccount() {
   try {
-    const m = document.cookie.match(/ngaPassportUid=(\d+)/);
-    $("#acctText").textContent = m ? `已登录（UID ${m[1]}）` : "NGA 账号：未登录";
-    $("#loginBtn").textContent = m ? "重新登录" : "登录 NGA";
+    const uid = loggedUid();
+    const name = uid && names[uid];
+    $("#acctText").textContent = uid ? `已登录：${name || `UID ${uid}`}` : "NGA 账号：未登录";
+    $("#loginBtn").textContent = uid ? "重新登录" : "登录 NGA";
   } catch (e) { /* 忽略 */ }
 }
 
@@ -702,11 +779,12 @@ function bind() {
   $("#tidGo").onclick = () => {
     const raw = $("#tidInput").value.trim();
     const m = raw.match(/tid=(\d+)/) || raw.match(/^(\d+)$/);
-    if (!m) return alert("请输入帖子链接或数字 tid");
+    if (!m) return toast("请输入帖子链接或数字 tid");
     $("#menuPanel").classList.add("hidden");
     openThread(m[1]);
   };
-  $("#loginBtn").onclick = () => { location.href = "/nuke.php?__lib=login&__act=account&login"; };
+  $("#loginBtn").onclick = openLogin;
+  $("#loginClose").onclick = closeLogin;
 
   $$("[data-mode]").forEach((b) => b.onclick = () => {
     if (b.dataset.mode === "user") {
@@ -719,8 +797,8 @@ function bind() {
   });
   const pickName = () => {
     const r = resolveUser($("#userName").value);
-    if (!r) return alert("在已加载的楼层里没找到这个昵称，可以先多翻几页，或直接点楼层里的用户名");
-    if (r.many) return alert(`匹配到多个：${r.many.map((u) => u.name).join("、")}，请输入完整昵称`);
+    if (!r) return toast("在已加载的楼层里没找到这个昵称，可以先多翻几页，或直接点楼层里的用户名", 5000);
+    if (r.many) return toast(`匹配到多个：${r.many.map((u) => u.name).join("、")}，请输入完整昵称`, 5000);
     $("#userPanel").classList.add("hidden");
     if (st.topic && r.uid === st.topic.authorid) setMode("op"); else setMode("user", r);
     start();
