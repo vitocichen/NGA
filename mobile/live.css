@@ -1,6 +1,26 @@
 /* 实时版在 m.css 基础上的补充 */
-#menuBtn { height: 34px; padding: 0 12px; flex: none; font-size: 18px; line-height: 1; }
-#reloadBtn { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; }
+.menuBtn { height: 34px; padding: 0 12px; flex: none; font-size: 18px; line-height: 1; }
+#backBtn { height: 34px; padding: 0 10px; flex: none; font-size: 22px; line-height: 1; font-weight: 700; }
+#reloadBtn, #listReload { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; height: 34px; flex: none; }
+.list-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: var(--brown); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 帖子列表 */
+#listFeed { padding: 8px 0; }
+.topic {
+  margin: 0 8px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+.topic:nth-child(even) { background: var(--card2); }
+.topic.updated { background: var(--newbg); border-color: var(--notice-border); }
+.topic.current { border-left: 3px solid var(--brown); }
+.t-title { font-size: 15px; font-weight: 600; color: var(--ink); line-height: 1.5; word-break: break-word; }
+.t-title .t-tag { margin-right: 4px; padding: 0 5px; border-radius: 3px; font-size: 11px; font-weight: 700; color: var(--on-accent); background: var(--brown2); vertical-align: 1px; }
+.t-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 5px; font-size: 12px; color: var(--muted); }
+.t-meta .replies { color: var(--brown); font-weight: 700; }
+#listMore { padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
 .row-l { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 0; }
 .row-l select { height: 32px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); color: var(--ink); }
 .row-l .inline { display: flex; gap: 6px; flex: 1; justify-content: flex-end; }

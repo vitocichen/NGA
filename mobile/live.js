@@ -30,6 +30,8 @@ const st = {
   atBottom: true,
   refreshedAt: 0,
   autoTimer: null,
+  view: "thread",
+  fid: "",
 };
 let names = {};
 try { names = JSON.parse(localStorage.getItem("live_names") || "{}"); } catch (e) { names = {}; }
@@ -119,8 +121,141 @@ function normalize(d) {
   saveNames();
   return {
     title: topic.subject || "", author: topic.author || "", authorid: String(topic.authorid || ""),
+    fid: String(topic.fid || (d.__F && d.__F.fid) || ""),
     page: d.__PAGE || 1, pages: Math.max(1, Math.ceil(total / per)), rows: total, posts, users,
   };
+}
+
+// ---------- 版面帖子列表 ----------
+const DEFAULT_FID = "510567";
+// 接口里子版面返回的是上级版面名（如「杂谈」），常用的这里写死显示名
+const FORUM_NAMES = { "510567": "[股市]技术分析" };
+const lst = { fid: localStorage.getItem("live_fid") || DEFAULT_FID, forum: "", topics: new Map(), page: 0,
+  pages: 1, loading: false, scrollY: 0, refreshedAt: 0, loaded: false };
+
+function decodeEntities(s) {
+  const t = document.createElement("textarea");
+  t.innerHTML = String(s || "");
+  return t.value;
+}
+
+async function fetchList(fid, page) {
+  const r = await ngaFetch(`/thread.php?fid=${fid}&page=${page}&__output=11`);
+  const d = JSON.parse((await r.text()).replace(/^\s*window\.script_muti_get_var_store\s*=\s*/, ""));
+  if (d.error) throw new Error(String(Array.isArray(d.error) ? d.error[0] : d.error[0]).replace(/^\d+:/, ""));
+  const data = d.data || d;
+  let rows = data.__T || [];
+  rows = Array.isArray(rows) ? rows : Object.values(rows);
+  const per = data.__T__ROWS_PAGE || 35;
+  return {
+    forum: (data.__F && data.__F.name) || "",
+    pages: Math.max(1, Math.ceil((data.__ROWS || rows.length) / per)),
+    topics: rows.filter((t) => t && t.tid).map((t) => ({
+      tid: String(t.tid), subject: decodeEntities(t.subject), author: t.author || "", authorid: String(t.authorid || ""),
+      postdate: t.postdate || 0, lastpost: t.lastpost || 0, lastposter: t.lastposter || "", replies: t.replies || 0,
+      locked: Boolean((t.type || 0) & 1024),
+    })),
+  };
+}
+
+const ago = (ts) => {
+  const s = nowTs() - ts;
+  if (s < 60) return "刚刚";
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`;
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`;
+  return fmt(ts);
+};
+
+function topicHtml(t, updated) {
+  const pages = Math.ceil((t.replies + 1) / 20);
+  return `<article class="topic${updated ? " updated" : ""}${t.tid === st.tid ? " current" : ""}" data-tid="${esc(t.tid)}">
+    <div class="t-title">${t.tid === st.tid ? '<span class="t-tag">正在看</span>' : ""}${esc(t.subject)}</div>
+    <div class="t-meta">
+      <span>${esc(t.author)}</span>
+      <span class="replies">回复 ${t.replies}${pages > 1 ? `（${pages} 页）` : ""}</span>
+      <span>最后：${esc(t.lastposter)} ${ago(t.lastpost)}</span>
+    </div>
+  </article>`;
+}
+
+function renderList(updated) {
+  const list = [...lst.topics.values()].sort((a, b) => b.lastpost - a.lastpost);
+  $("#listFeed").innerHTML = list.map((t) => topicHtml(t, updated && updated.has(t.tid))).join("")
+    || `<div class="empty">${lst.loading ? "加载中…" : "没有帖子"}</div>`;
+  const forum = FORUM_NAMES[lst.fid] || lst.forum;
+  $("#listTitle").textContent = forum ? `${forum} · 帖子列表` : "帖子列表";
+  const t = lst.refreshedAt ? hms(new Date(lst.refreshedAt)) : "--";
+  const auto = Number($("#autoSel").value);
+  $("#listMeta").innerHTML = `<span class="live">● 实时</span> · 按最后回复排序 · 已加载 ${list.length} 帖 · 刷新于 ${t}${auto ? `（每 ${auto} 秒自动）` : ""}`;
+  $("#listMore").textContent = lst.loading ? "加载中…" : lst.page >= lst.pages ? "没有更多了" : "继续下滑加载更多";
+}
+
+async function loadListPage() {
+  if (lst.loading || lst.page >= lst.pages) return;
+  lst.loading = true;
+  renderList();
+  try {
+    const d = await fetchList(lst.fid, lst.page + 1);
+    lst.forum = d.forum || lst.forum;
+    lst.pages = d.pages;
+    lst.page += 1;
+    for (const t of d.topics) if (!lst.topics.has(t.tid)) lst.topics.set(t.tid, t);
+    lst.refreshedAt = lst.refreshedAt || Date.now();
+  } catch (e) {
+    $("#listMore").textContent = `加载失败：${e.message}`;
+  } finally {
+    lst.loading = false;
+    renderList();
+  }
+}
+
+async function refreshList(manual) {
+  if (lst.loading) return;
+  const btn = $("#listReload");
+  if (manual) { btn.disabled = true; btn.textContent = "刷新中"; }
+  try {
+    const d = await fetchList(lst.fid, 1);
+    lst.forum = d.forum || lst.forum;
+    lst.pages = d.pages;
+    const updated = new Set();
+    for (const t of d.topics) {
+      const old = lst.topics.get(t.tid);
+      if (!old || t.lastpost > old.lastpost) updated.add(t.tid);
+      lst.topics.set(t.tid, t);
+    }
+    lst.refreshedAt = Date.now();
+    const keepTop = window.scrollY < 40;
+    renderList(lst.loaded ? updated : null);
+    if (keepTop) window.scrollTo(0, 0);
+  } catch (e) {
+    $("#listMeta").innerHTML += ` <span class="err">刷新失败：${esc(e.message)}</span>`;
+  } finally {
+    if (manual) { btn.disabled = false; btn.textContent = "刷新"; }
+  }
+}
+
+async function showList(fid) {
+  if (fid && fid !== lst.fid) {
+    Object.assign(lst, { fid, forum: "", topics: new Map(), page: 0, pages: 1, loaded: false, scrollY: 0 });
+    localStorage.setItem("live_fid", fid);
+  }
+  st.threadScroll = window.scrollY;
+  showView("list");
+  if (!lst.loaded) {
+    lst.loaded = true;
+    await loadListPage();
+  } else {
+    renderList();
+    window.scrollTo(0, lst.scrollY);
+    refreshList(false);
+  }
+}
+
+function showView(v) {
+  st.view = v;
+  const list = v === "list";
+  ["#listTop", "#listFeed", "#listMore"].forEach((s) => $(s).classList.toggle("hidden", !list));
+  ["#top", "#feed", "#topMore", "#more", "#newTip"].forEach((s) => $(s).classList.toggle("hidden", list || (s === "#newTip")));
 }
 
 async function fetchPageHtml(tid, page, authorid) {
@@ -226,6 +361,7 @@ async function start() {
     const d = await fetchPage(st.tid, "e", st.authorid);
     if (gen !== st.gen) return;
     st.topic = { title: d.title, author: d.author, authorid: d.authorid || (st.topic && st.topic.authorid), rows: d.rows };
+    if (d.fid) st.fid = d.fid;
     rememberThread(st.tid, d.title);
     st.lastPage = st.loPage = st.hiPage = d.page;
     addPosts(d);
@@ -324,12 +460,16 @@ function showTip(text) {
   showTip._t = setTimeout(() => t.classList.add("hidden"), 6000);
 }
 
+function refreshCurrent() {
+  if (st.view === "list") refreshList(false); else refresh(false);
+}
+
 function setAuto() {
   clearInterval(st.autoTimer);
   const sec = Number($("#autoSel").value);
   localStorage.setItem("live_auto", String(sec));
-  if (sec) st.autoTimer = setInterval(() => { if (!document.hidden) refresh(false); }, sec * 1000);
-  renderMeta();
+  if (sec) st.autoTimer = setInterval(() => { if (!document.hidden) refreshCurrent(); }, sec * 1000);
+  if (st.view === "list") renderList(); else renderMeta();
 }
 
 // ---------- 帖子与用户 ----------
@@ -356,6 +496,7 @@ function renderThreads() {
 function openThread(tid) {
   st.tid = tid;
   localStorage.setItem("live_tid", tid);
+  showView("thread");
   setMode("all");
   renderThreads();
   start();
@@ -392,7 +533,18 @@ async function checkAccount() {
 function bind() {
   $("#threadSel").onchange = () => openThread($("#threadSel").value);
   $("#reloadBtn").onclick = () => refresh(true);
-  $("#menuBtn").onclick = () => { checkAccount(); $("#menuPanel").classList.remove("hidden"); };
+  $$(".menuBtn").forEach((b) => b.onclick = () => { checkAccount(); $("#menuPanel").classList.remove("hidden"); });
+  $("#backBtn").onclick = () => showList(st.fid || lst.fid);
+  $("#listReload").onclick = () => refreshList(true);
+  $("#listFeed").addEventListener("click", (e) => {
+    const t = e.target.closest(".topic[data-tid]");
+    if (!t) return;
+    lst.scrollY = window.scrollY;
+    openThread(t.dataset.tid);
+  });
+  new IntersectionObserver((ents) => {
+    if (st.view === "list" && ents.some((e) => e.isIntersecting)) loadListPage();
+  }, { rootMargin: `0px 0px ${PREFETCH_PX}px 0px` }).observe($("#listMore"));
   $("#menuClose").onclick = () => $("#menuPanel").classList.add("hidden");
   $("#autoSel").value = localStorage.getItem("live_auto") || "30";
   $("#autoSel").onchange = setAuto;
@@ -480,7 +632,7 @@ function bind() {
   });
   $("#lightbox").onclick = () => $("#lightbox").classList.add("hidden");
   // 切回前台立刻刷新一次
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(false); });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshCurrent(); });
 }
 
 (async function init() {

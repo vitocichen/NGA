@@ -12,11 +12,23 @@
 <link rel="stylesheet" href="https://vitocichen.github.io/NGA/live.css">
 </head>
 <body>
+<header id="listTop" class="hidden">
+  <div class="bar">
+    <div id="listTitle" class="list-title">帖子列表</div>
+    <button id="listReload">刷新</button>
+    <button class="menuBtn" title="更多">⋯</button>
+  </div>
+  <div id="listMeta" class="meta"></div>
+</header>
+<main id="listFeed" class="hidden"></main>
+<div id="listMore" class="hidden"></div>
+
 <header id="top">
   <div class="bar">
+    <button id="backBtn" title="返回帖子列表">‹</button>
     <select id="threadSel"></select>
     <button id="reloadBtn">刷新</button>
-    <button id="menuBtn" title="更多">⋯</button>
+    <button class="menuBtn" title="更多">⋯</button>
   </div>
   <div class="bar tabs">
     <div class="seg">
