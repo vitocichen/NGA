@@ -466,7 +466,6 @@ function setRange(from, to) {
 // ---------- 帖子列表：预设 + 最近打开 ----------
 const PRESET_THREADS = [
   { tid: "47288722", title: "自立自强，科学技术打头阵----救赎版" },
-  { tid: "47812645", title: "左光右存算电主楼" },
 ];
 const MAX_RECENT = 10;
 

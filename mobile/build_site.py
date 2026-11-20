@@ -14,7 +14,7 @@ sys.path.insert(0, ROOT)
 
 from nga_api import NgaClient, NgaError  # noqa: E402
 
-THREADS = ["47288722", "47812645"]
+THREADS = ["47288722"]
 ALL_PAGES = 15
 # 楼主按时间同步：覆盖最近 7 天，最多 OP_MAX_PAGES 页
 OP_DAYS = 7

@@ -5,7 +5,6 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 const PRESETS = [
   { tid: "47288722", title: "自立自强，科学技术打头阵----救赎版" },
-  { tid: "47812645", title: "左光右存算电主楼" },
 ];
 const BATCH_PAGES = 2;
 const MAX_AUTO_PAGES = 40;
@@ -63,21 +62,42 @@ async function ngaFetch(path) {
     r = await fetch(`${path}${path.includes("?") ? "&" : "?"}rand=${Math.floor(Math.random() * 1000)}`,
       { credentials: "include", cache: "no-store" });
   }
-  if (!r.ok) throw new Error(`NGA 返回 HTTP ${r.status}`);
+  if (!r.ok) {
+    // NGA 的业务错误也走非 200，正文里带原因（如「帖子审核未通过」「需要登录」）
+    const body = await r.text().catch(() => "");
+    const m = body.match(/"error"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"/);
+    let why = "";
+    try { why = m ? JSON.parse(`"${m[1]}"`).replace(/^\d+:/, "") : ""; } catch (e) { why = ""; }
+    throw new Error(why ? `NGA：${why}` : `NGA 返回 HTTP ${r.status}`);
+  }
   return r;
+}
+
+// NGA 的 JSON 偶尔夹带原始控制字符（浏览器 JSON.parse 不认），也会偶发在中途截断
+function parseNgaJson(text) {
+  const body = text.replace(/^\s*window\.script_muti_get_var_store\s*=\s*/, "");
+  try { return JSON.parse(body); } catch (e) { /* 清掉控制字符再试 */ }
+  try { return JSON.parse(body.replace(/[\u0000-\u001f]/g, " ")); } catch (e) { return null; }
 }
 
 async function fetchPage(tid, page, authorid) {
   const q = `tid=${tid}&page=${page}${authorid ? `&authorid=${authorid}` : ""}`;
-  const r = await ngaFetch(`/read.php?${q}&__output=11`);
-  const text = await r.text();
-  let d;
-  try {
-    d = JSON.parse(text.replace(/^\s*window\.script_muti_get_var_store\s*=\s*/, ""));
-  } catch (e) {
-    // 只看某人时 NGA 的 JSON 有时会在中途截断，退回解析 HTML 版
-    if (authorid) return fetchPageHtml(tid, page, authorid);
-    throw new Error("NGA 返回内容无法解析");
+  let r = await ngaFetch(`/read.php?${q}&__output=11`);
+  let text = await r.text();
+  let d = parseNgaJson(text);
+  if (!d) {
+    r = await ngaFetch(`/read.php?${q}&__output=11&rand=${Math.floor(Math.random() * 1000)}`);
+    text = await r.text();
+    d = parseNgaJson(text);
+  }
+  if (!d) {
+    // 两次都解析不了就退回解析 HTML 版
+    try {
+      const h = await fetchPageHtml(tid, page, authorid);
+      if (h.posts.length) return h;
+    } catch (e) { /* 用下面的报错 */ }
+    const head = text.replace(/\s+/g, " ").slice(0, 60);
+    throw new Error(`NGA 返回内容无法解析（HTTP ${r.status}，${text.length} 字，开头：${head}）`);
   }
   if (d.error) {
     const msg = Array.isArray(d.error) ? d.error[0] : (d.error[0] || JSON.stringify(d.error));
@@ -262,8 +282,13 @@ function showView(v) {
 }
 
 async function fetchPageHtml(tid, page, authorid) {
-  const r = await ngaFetch(`/read.php?tid=${tid}&page=${page}&authorid=${authorid}`);
+  const r = await ngaFetch(`/read.php?tid=${tid}&page=${page}${authorid ? `&authorid=${authorid}` : ""}`);
   const html = new TextDecoder("gbk").decode(await r.arrayBuffer());
+  const tm = html.match(/<title>([^<]*)<\/title>/);
+  const title = tm ? decodeEntities(tm[1]).replace(/\s*NGA玩家社区.*$/, "").trim() : "";
+  // setDefault(版面, 合集, 帖子号, 楼主 uid, ...)
+  const dm = html.match(/commonui\.postArg\.setDefault\(\s*(\d+)\s*,\s*\d+\s*,\s*\d+\s*,\s*(\d+)/);
+  const fm = html.match(/__CURRENT_FID\s*=\s*(\d+)/);
   const procRe = /commonui\.postArg\.proc\(\s*(\d+)\s*,(?:\s*\$\('[^']*'\)\s*,){7}\s*[^,]*,[^,]*,\s*(\d+)\s*,\s*(\d+)\s*,\s*[^,]*,\s*'(-?\d+)'\s*,\s*(\d+)\s*,\s*'([^']*)'\s*,\s*'(\d*)'\s*,\s*'([^']*)'/g;
   const rows = [];
   for (const m of html.matchAll(procRe)) {
@@ -279,7 +304,8 @@ async function fetchPageHtml(tid, page, authorid) {
   const pm = html.match(/__PAGE\s*=\s*\{0:'[^']*',1:(\d+),2:(\d+),3:(\d+)\}/);
   const [pages, cur, per] = pm ? pm.slice(1).map(Number) : [1, 1, 20];
   return normalize({
-    __T: st.topic ? { subject: st.topic.title, author: st.topic.author, authorid: st.topic.authorid } : {},
+    __T: st.topic && st.topic.tid === String(tid) ? { subject: st.topic.title || title, author: st.topic.author, authorid: st.topic.authorid }
+      : { subject: title, authorid: dm ? dm[2] : "", fid: dm ? dm[1] : fm ? fm[1] : "" },
     __R: rows, __U: users, __PAGE: cur, __R__ROWS_PAGE: per,
     __ROWS: cur >= pages ? (pages - 1) * per + rows.length : pages * per,
   });
@@ -368,7 +394,9 @@ async function start() {
   try {
     const d = await fetchPage(st.tid, "e", st.authorid);
     if (gen !== st.gen) return;
-    st.topic = { title: d.title, author: d.author, authorid: d.authorid || (st.topic && st.topic.authorid), rows: d.rows };
+    const same = st.topic && st.topic.tid === st.tid;
+    st.topic = { tid: st.tid, title: d.title || (same ? st.topic.title : ""), author: d.author || (same ? st.topic.author : ""),
+      authorid: d.authorid || (same ? st.topic.authorid : ""), rows: d.rows };
     st.per = d.per;
     if (d.fid) st.fid = d.fid;
     rememberThread(st.tid, d.title);
