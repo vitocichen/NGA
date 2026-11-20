@@ -56,6 +56,8 @@
 <div id="more"></div>
 
 <div id="nav">
+  <button id="jumpBack" class="hidden" title="回到跳转前的位置">↩</button>
+  <button id="jumpBtn" title="跳到楼层">#</button>
   <button id="toTop">↑</button>
   <button id="toBottom">↓</button>
 </div>
@@ -86,6 +88,18 @@
     <div class="row-l"><span id="acctText">NGA 账号：检查中…</span><button id="loginBtn">登录 NGA</button></div>
     <p class="hint">未登录时 NGA 不返回用户名，部分人显示为 UID。登录完成后，点左上角「完成」关掉窗口，再重新运行脚本即可。</p>
     <div class="panel-actions"><button id="menuClose" class="primary">关闭</button></div>
+  </div>
+</div>
+
+<div id="jumpPanel" class="panel hidden">
+  <div class="panel-box">
+    <h3>跳到楼层</h3>
+    <input id="jumpInput" class="panel-input" type="number" inputmode="numeric" min="0" placeholder="输入楼号，例如 100000" autocomplete="off">
+    <div class="panel-actions">
+      <button id="jumpCancel">取消</button>
+      <button id="jumpGo" class="primary">跳转</button>
+    </div>
+    <p class="hint">跳过去后可以上下滑继续看前后的楼层；点右下角 ↩ 回到原来的位置，点「刷新」回到最新。</p>
   </div>
 </div>
 

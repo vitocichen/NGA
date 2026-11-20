@@ -92,7 +92,7 @@ function postHtml(p, isNew) {
   const inContent = p.content || "";
   const extra = (p.attachs || []).filter((a) => !inContent.includes(a.replace(/^\.\//, "")));
   return `
-  <div class="post${isNew ? " new" : ""}${isOp ? " op" : ""}" id="l${p.lou}" data-lou="${p.lou}">
+  <div class="post${isNew ? " new" : ""}${isOp ? " op" : ""}" id="l${p.lou}" data-lou="${p.lou}" data-pid="${esc(p.pid)}">
     <div class="poster" title="${esc(tip)}">
       <div class="utop">
         <span class="uname" data-uid="${esc(p.authorid)}" title="点击只看此人">${esc(name)}</span>
@@ -210,6 +210,7 @@ function scrollToBottom() {
 
 async function startView(opts = {}) {
   const gen = ++state.gen;
+  if (!opts.jump) setJumpBack(null);
   $("#feed").innerHTML = "";
   $("#topText").textContent = "";
   $("#footerText").textContent = "";
@@ -234,7 +235,10 @@ async function startView(opts = {}) {
     state.loading = false;
     await loadMore();
     if (state.order === "chat" && gen === state.gen) scrollToBottom();
-    if (opts.scrollTo !== undefined) scrollToFloor(opts.scrollTo);
+    if (opts.scrollTo && gen === state.gen) {
+      const el = findPost(opts.scrollTo);
+      if (el) flashPost(el); else toast("这一页里没找到这层楼（可能已被删除）", 3000);
+    }
     $("#refreshInfo").textContent = `最近刷新 ${new Date().toLocaleTimeString()}`;
   } catch (e) {
     if (gen !== state.gen) return;
@@ -377,6 +381,78 @@ function hideBanner() {
 function scrollToFloor(lou) {
   const el = document.getElementById(`l${lou}`);
   if (el) { el.scrollIntoView({ block: "start" }); el.classList.add("new"); setTimeout(() => el.classList.remove("new"), 2500); }
+}
+
+// ---------- 楼层跳转 / 引用跳转 ----------
+// target：{ pid, page }（引用）或 { lou }（全帖楼号）。只看某人时 DOM 里的 lou 是此人的第几帖，不能按楼号找
+function findPost(t) {
+  if (t.pid) return document.querySelector(`#feed .post[data-pid="${t.pid}"]`);
+  return document.getElementById(`l${t.lou}`);
+}
+function flashPost(el) {
+  el.scrollIntoView({ block: "start" });
+  el.classList.remove("hit");
+  void el.offsetWidth;
+  el.classList.add("hit");
+  // 上方图片陆续加载会把目标挤下去，短时间内跟住它；用户自己滚动就放手
+  state.anchor = { el, until: Date.now() + 4000 };
+}
+// 返回栈：view 项是跳转前的整个视图（只记最初那个），其余是页内位置，「返回」逐层退回
+function setJumpBack(b) {
+  if (!b) state.jumpStack = [];
+  else if (!(b.view && (state.jumpStack || []).some((x) => x.view))) (state.jumpStack = state.jumpStack || []).push(b);
+  $("#jumpBackBtn").classList.toggle("hidden", !(state.jumpStack || []).length);
+}
+// 记住视口最上面那条楼层和它的位置，上方插入更早的楼层后也能回到原处
+function viewSpot() {
+  const m = $("#main"), box = m.getBoundingClientRect();
+  const el = document.elementFromPoint(box.left + box.width / 2, box.top + 8);
+  const post = el && el.closest("#feed .post");
+  return post ? { pid: post.dataset.pid, off: post.getBoundingClientRect().top } : { top: m.scrollTop };
+}
+function currentRangeKey() {
+  const b = document.querySelector("[data-range].active");
+  return b ? b.dataset.range : null;
+}
+
+function jumpTo(t) {
+  if (state.view === "list") showThreadView();
+  const inDom = (t.pid || !state.authorid) && findPost(t);
+  if (inDom) {
+    setJumpBack(viewSpot());
+    return flashPost(inDom);
+  }
+  const back = { view: true, authorid: state.authorid, viewUser: state.viewUser, order: state.order,
+    from: state.from, to: state.to, range: currentRangeKey() };
+  if (state.authorid) { state.authorid = null; setMode(); }
+  setRange(null, null);
+  $$("[data-range]").forEach((x) => x.classList.remove("active"));
+  state.order = "asc";
+  $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === "asc"));
+  const per = (state.topic && state.topic.perPage) || 20;
+  setJumpBack(back);
+  startView({ page: t.page || Math.floor(t.lou / per) + 1, scrollTo: t, jump: true });
+}
+
+function jumpBack() {
+  const b = (state.jumpStack || []).pop();
+  $("#jumpBackBtn").classList.toggle("hidden", !state.jumpStack || !state.jumpStack.length);
+  if (!b) return;
+  if (!b.view) {
+    const m = $("#main");
+    const el = b.pid && document.querySelector(`#feed .post[data-pid="${b.pid}"]`);
+    m.scrollTop = el ? m.scrollTop + el.getBoundingClientRect().top - b.off : b.top || 0;
+    return;
+  }
+  setJumpBack(null);
+  state.authorid = b.authorid;
+  state.viewUser = b.viewUser;
+  setMode();
+  setRange(b.from, b.to);
+  $$("[data-range]").forEach((x) => x.classList.toggle("active", x.dataset.range === b.range && b.range !== "all"));
+  state.order = b.order;
+  $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === b.order));
+  startView();
 }
 
 // ---------- 事件 ----------
@@ -604,11 +680,18 @@ function bind() {
     }
   };
   $("#userInput").addEventListener("keydown", (e) => e.key === "Enter" && $("#userGo").click());
-  // 点楼层里的用户名：只看这个人
+  // 点引用框/回复条：在本页跳到原楼（引用别的帖子时链接仍在 NGA 打开）
   $("#feed").addEventListener("click", (e) => {
-    const el = e.target.closest(".uname[data-uid]");
+    const t = jumpTargetOf(e, state.tid);
+    if (!t) return;
+    e.preventDefault();
+    jumpTo(t);
+  });
+  // 点任何位置的用户名（楼层左栏、引用框、回复条、正文 @）：只看这个人
+  $("#feed").addEventListener("click", (e) => {
+    const el = e.target.closest(".uname[data-uid], .at[data-uid]");
     if (!el) return;
-    viewUser({ uid: el.dataset.uid, name: el.textContent });
+    viewUser({ uid: el.dataset.uid, name: el.textContent.replace(/^@/, "").trim() });
   });
   $$(".order").forEach((b) => b.onclick = () => {
     state.order = b.dataset.order;
@@ -637,14 +720,10 @@ function bind() {
   $("#jumpBtn").onclick = () => {
     const lou = parseInt($("#jumpInput").value, 10);
     if (isNaN(lou) || lou < 0) return toast("请输入楼层号");
-    if (state.authorid) { state.authorid = null; setMode(); }
-    setRange(null, null);
-    $$("[data-range]").forEach((x) => x.classList.remove("active"));
-    state.order = "asc";
-    $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === "asc"));
-    const per = (state.topic && state.topic.perPage) || 20;
-    startView({ page: Math.floor(lou / per) + 1, scrollTo: lou });
+    if (!state.authorid && state.topic && lou >= state.topic.rows) return toast(`本帖目前只有 #0 ~ #${state.topic.rows - 1}`);
+    jumpTo({ lou });
   };
+  $("#jumpBackBtn").onclick = jumpBack;
   $("#jumpInput").addEventListener("keydown", (e) => e.key === "Enter" && $("#jumpBtn").click());
 
   $("#autoChk").onchange = $("#autoSec").onchange = () => {
@@ -676,8 +755,12 @@ function bind() {
   });
   // 图片/表情加载会撑高内容，停在底部时继续贴底
   document.addEventListener("load", (e) => {
-    if (e.target instanceof HTMLImageElement && state.view !== "list" && state.order === "chat" && state.atBottom) scrollToBottom();
+    if (!(e.target instanceof HTMLImageElement) || state.view === "list") return;
+    const a = state.anchor;
+    if (a && Date.now() < a.until && a.el.isConnected) return a.el.scrollIntoView({ block: "start" });
+    if (state.order === "chat" && state.atBottom) scrollToBottom();
   }, true);
+  ["wheel", "mousedown", "keydown"].forEach((ev) => $("#main").addEventListener(ev, () => { state.anchor = null; }, { passive: true }));
   document.addEventListener("keydown", (e) => {
     if (e.target.closest("input, select, textarea")) return;
     if (e.key === "Home") { e.preventDefault(); toTop(); }

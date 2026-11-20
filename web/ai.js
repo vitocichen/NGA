@@ -214,7 +214,7 @@ function jumpToRef(lou, op) {
   state.order = "asc";
   $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === "asc"));
   const per = (state.topic && state.topic.perPage) || 20;
-  startView({ page: Math.floor(lou / per) + 1, scrollTo: lou });
+  startView({ page: Math.floor(lou / per) + 1, scrollTo: { lou } });
 }
 
 // ---------- 设置 ----------

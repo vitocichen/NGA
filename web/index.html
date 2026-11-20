@@ -81,6 +81,14 @@
     <button id="applyRange" class="btn wide">应用时间范围</button>
   </section>
 
+  <section class="box">
+    <label class="lbl">跳到楼层</label>
+    <div class="row">
+      <input id="jumpInput" type="number" min="0" placeholder="楼号，例如 100000">
+      <button id="jumpBtn" class="btn small">跳转</button>
+    </div>
+  </section>
+
   <section class="box ai-box">
     <div class="ai-title">
       <label class="lbl">AI 分析</label>
@@ -101,14 +109,6 @@
     </div>
     <textarea id="aiQuestion" rows="2" placeholder="自由提问，例如：楼主怎么看半导体？（Ctrl+Enter 发送）"></textarea>
     <button id="aiAskBtn" class="btn wide">提问</button>
-  </section>
-
-  <section class="box">
-    <label class="lbl">跳到楼层</label>
-    <div class="row">
-      <input id="jumpInput" type="number" min="0" placeholder="例如 100000">
-      <button id="jumpBtn" class="btn small">跳转</button>
-    </div>
   </section>
 
   <section class="box status">
@@ -138,6 +138,7 @@
 
 <div id="nav">
   <div id="posInfo" class="hidden"></div>
+  <button id="jumpBackBtn" class="hidden" title="回到跳转前的位置">↩ 返回</button>
   <button id="topBtn" title="回到顶部（Home）">↑ 顶部</button>
   <button id="bottomBtn" title="到已加载内容底部（End），会继续自动加载">↓ 底部</button>
 </div>

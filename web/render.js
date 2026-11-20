@@ -19,6 +19,32 @@ function imgTag(u) {
   if (!/^https?:\/\//.test(u)) return "";
   return `<img class="pimg" loading="lazy" referrerpolicy="no-referrer" src="${esc(u)}" data-orig="${esc(u)}">`;
 }
+// [pid=楼ID,tid,页码] / [tid=帖子号]：带上跳转信息，阅读器拦截点击后在本页定位；拦截不了时仍能在 NGA 打开
+function postLink(kind, id, args, text, cls) {
+  const [, tid, page] = String(args || "").split(",");
+  const isPid = kind.toLowerCase() === "pid" && id !== "0";
+  const data = isPid ? `data-jpid="${id}" data-jtid="${esc(tid || "")}" data-jpage="${esc(page || "")}"`
+    : `data-jpid="0" data-jtid="${esc(kind.toLowerCase() === "tid" ? id : tid || "")}" data-jpage="1"`;
+  const href = isPid ? `pid=${id}` : `tid=${kind.toLowerCase() === "tid" ? id : tid}`;
+  return `<a class="qjump${cls ? " " + cls : ""}" ${data} href="https://bbs.nga.cn/read.php?${href}" target="_blank" title="跳到被引用的楼层">${text}</a>`;
+}
+// 引用框 / 回复条整块可点：跳转信息放在容器上，用户名单独可点（只看此人）
+function jumpAttrs(kind, id, args) {
+  return postLink(kind, id, args, "", "").match(/data-jpid="[^"]*" data-jtid="[^"]*" data-jpage="[^"]*"/)[0];
+}
+function userTag(uid, name) {
+  return uid ? `<span class="at" data-uid="${uid}" title="只看此人">${name}</span>` : `<span class="at">${name}</span>`;
+}
+// 点击引用框/回复条时的跳转目标；点到用户名、普通链接、图片、折叠标题或正在选中文字时不跳
+function jumpTargetOf(e, curTid) {
+  if (e.target.closest(".at[data-uid], .uname[data-uid], a:not(.qjump), .pimg, summary")) return null;
+  if (String(window.getSelection() || "")) return null;
+  const el = e.target.closest(".qlink[data-jpid], a.qjump[data-jpid]");
+  if (!el || (el.dataset.jtid && el.dataset.jtid !== curTid)) return null;
+  const pid = el.dataset.jpid, page = parseInt(el.dataset.jpage, 10);
+  if (pid === "0") return { lou: 0 };
+  return page ? { pid, page } : null;
+}
 function safeUrl(u) {
   u = u.trim().replace(/&amp;/g, "&");
   if (u.startsWith("/")) u = "https://bbs.nga.cn" + u;
@@ -39,15 +65,15 @@ function renderContent(src) {
   s = s.replace(/\[img\]\s*([\s\S]*?)\s*\[\/img\]/gi, (m, u) => imgTag(u));
 
   // 楼中楼回复头：[b]Reply to [pid=..]Reply[/pid] Post by [uid=..]name[/uid] (time)正文可能也在[/b]里
-  s = s.replace(/\[b\]\s*Reply to \[(pid|tid)=(\d+)[^\]]*\][\s\S]*?\[\/\1\]\s*Post by \[uid=?(\d*)\]([\s\S]*?)\[\/uid\]\s*\(([^)]*)\)([\s\S]*?)\[\/b\]/gi,
-    (m, k, id, uid, name, t, rest) => `<div class="replyto">回复 <a class="at" href="https://bbs.nga.cn/read.php?${k}=${id}" target="_blank">@${name}</a> <span class="t">${t}</span></div>${rest.replace(/^\s+/, "")}`);
+  s = s.replace(/\[b\]\s*Reply to \[(pid|tid)=(\d+)([^\]]*)\][\s\S]*?\[\/\1\]\s*Post by \[uid=?(\d*)\]([\s\S]*?)\[\/uid\]\s*\(([^)]*)\)([\s\S]*?)\[\/b\]/gi,
+    (m, k, id, args, uid, name, t, rest) => `<div class="replyto qlink" ${jumpAttrs(k, id, args)} title="点击跳到原楼层">回复 ${userTag(uid, `@${name}`)} <span class="t">${t}</span><span class="qgo">原楼 ›</span></div>${rest.replace(/^\s+/, "")}`);
   // 引用头：[pid=..]Reply[/pid] [b]Post by [uid=..]name[/uid] (time):[/b]
-  s = s.replace(/\[(pid|tid)=(\d+)[^\]]*\][\s\S]*?\[\/\1\]\s*\[b\]\s*Post by \[uid=?(\d*)\]([\s\S]*?)\[\/uid\]\s*\(([^)]*)\):?\s*\[\/b\]/gi,
-    (m, k, id, uid, name, t) => `<div class="qhead"><a class="at" href="https://bbs.nga.cn/read.php?${k}=${id}" target="_blank">${name}</a> <span class="t">${t}</span></div>`);
+  s = s.replace(/\[(pid|tid)=(\d+)([^\]]*)\][\s\S]*?\[\/\1\]\s*\[b\]\s*Post by \[uid=?(\d*)\]([\s\S]*?)\[\/uid\]\s*\(([^)]*)\):?\s*\[\/b\]/gi,
+    (m, k, id, args, uid, name, t) => `<div class="qhead" ${jumpAttrs(k, id, args)}>${userTag(uid, name)} <span class="t">${t}</span><span class="qgo">跳到原楼 ›</span></div>`);
 
-  s = s.replace(/\[pid=(\d+)[^\]]*\]([\s\S]*?)\[\/pid\]/gi, (m, id, t) => `<a href="https://bbs.nga.cn/read.php?pid=${id}" target="_blank">${t === "Reply" ? "回复" : t}</a>`);
+  s = s.replace(/\[pid=(\d+)([^\]]*)\]([\s\S]*?)\[\/pid\]/gi, (m, id, args, t) => postLink("pid", id, args, t === "Reply" ? "回复" : t, ""));
   s = s.replace(/\[tid=(\d+)[^\]]*\]([\s\S]*?)\[\/tid\]/gi, (m, id, t) => `<a href="https://bbs.nga.cn/read.php?tid=${id}" target="_blank">${t === "Topic" ? "主题" : t}</a>`);
-  s = s.replace(/\[uid=?(\d*)\]([\s\S]*?)\[\/uid\]/gi, (m, uid, n) => `<span class="at">${n}</span>`);
+  s = s.replace(/\[uid=?(\d*)\]([\s\S]*?)\[\/uid\]/gi, (m, uid, n) => userTag(uid, n));
   s = s.replace(/\[url=([^\]]+)\]([\s\S]*?)\[\/url\]/gi, (m, u, t) => { const h = safeUrl(u); return h ? `<a href="${h}" target="_blank">${t}</a>` : t; });
   s = s.replace(/\[url\]([\s\S]*?)\[\/url\]/gi, (m, u) => { const h = safeUrl(u); return h ? `<a href="${h}" target="_blank">${u}</a>` : u; });
 
@@ -64,7 +90,11 @@ function renderContent(src) {
     [/\[list\]([\s\S]*?)\[\/list\]/gi, (m, b) => "<ul>" + b.split("[*]").filter((x) => x.trim()).map((x) => `<li>${x}</li>`).join("") + "</ul>"],
     [/\[size=(\d+)%?\]([\s\S]*?)\[\/size\]/gi, (m, n, t) => `<span style="font-size:${Math.min(250, Math.max(60, +n))}%">${t}</span>`],
     [/\[collapse(?:=([^\]]*))?\]([\s\S]*?)\[\/collapse\]/gi, (m, t, b) => `<details><summary>${t || "点击显示隐藏的内容"}</summary>${b}</details>`],
-    [/\[quote\]((?:(?!\[quote\])[\s\S])*?)\[\/quote\]/gi, (m, b) => `<div class="quote">${b.replace(/^\n+|\n+$/g, "")}</div>`],
+    [/\[quote\]((?:(?!\[quote\])[\s\S])*?)\[\/quote\]/gi, (m, b) => {
+      b = b.replace(/^\n+|\n+$/g, "");
+      const j = b.match(/^<div class="qhead" (data-jpid="[^"]*" data-jtid="[^"]*" data-jpage="[^"]*")>/);
+      return j ? `<div class="quote qlink" ${j[1]} title="点击跳到原楼层">${b}</div>` : `<div class="quote">${b}</div>`;
+    }],
   ];
   for (let i = 0; i < 6; i++) {
     const before = s;

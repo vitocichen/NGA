@@ -276,6 +276,21 @@ summary { cursor: pointer; color: var(--brown2); }
   opacity: .85;
 }
 #nav button:hover { opacity: 1; background: var(--accent-hover); }
+#nav #jumpBackBtn { width: auto; padding: 0 12px; background: var(--brown2); opacity: 1; }
+.post.hit { animation: post-hit 2.6s ease-out; }
+@keyframes post-hit {
+  0%, 55% { outline: 3px solid var(--brown2); outline-offset: -3px; }
+  100% { outline: 3px solid transparent; outline-offset: -3px; }
+}
+a.qjump { cursor: pointer; }
+.qlink { cursor: pointer; transition: background-color .15s, border-color .15s; }
+.quote.qlink:hover { background: var(--table-hover); border-left-color: var(--brown2); }
+.replyto.qlink:hover { background: var(--btn-hover); }
+.qgo { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--muted); opacity: 0; transition: opacity .15s; }
+.qhead .qgo { float: right; }
+.qlink:hover > .qgo, .qlink:hover > .qhead .qgo { opacity: 1; color: var(--brown2); }
+.at[data-uid] { cursor: pointer; }
+.at[data-uid]:hover { text-decoration: underline; }
 #posInfo {
   padding: 2px 9px;
   border-radius: 11px;

@@ -438,10 +438,11 @@ function bind() {
   $("#toBottom").onclick = () => window.scrollTo({ top: pageBottom(), behavior: "smooth" });
 
   $("#feed").addEventListener("click", (e) => {
-    const un = e.target.closest(".uname[data-uid]");
+    const un = e.target.closest(".uname[data-uid], .at[data-uid]");
     if (un) {
+      e.preventDefault();
       if (un.dataset.uid === st.data.authorid) return $("[data-mode=op]").click();
-      return pickUser({ uid: un.dataset.uid, name: un.textContent });
+      return pickUser({ uid: un.dataset.uid, name: un.textContent.replace(/^@/, "").trim() });
     }
     const img = e.target.closest(".pimg");
     if (!img) return;

@@ -32,6 +32,7 @@ const st = {
   autoTimer: null,
   view: "thread",
   fid: "",
+  backs: [],
 };
 let names = {};
 try { names = JSON.parse(localStorage.getItem("live_names") || "{}"); } catch (e) { names = {}; }
@@ -122,7 +123,7 @@ function normalize(d) {
   return {
     title: topic.subject || "", author: topic.author || "", authorid: String(topic.authorid || ""),
     fid: String(topic.fid || (d.__F && d.__F.fid) || ""),
-    page: d.__PAGE || 1, pages: Math.max(1, Math.ceil(total / per)), rows: total, posts, users,
+    page: d.__PAGE || 1, pages: Math.max(1, Math.ceil(total / per)), rows: total, per, posts, users,
   };
 }
 
@@ -256,6 +257,8 @@ function showView(v) {
   const list = v === "list";
   ["#listTop", "#listFeed", "#listMore"].forEach((s) => $(s).classList.toggle("hidden", !list));
   ["#top", "#feed", "#topMore", "#more", "#newTip"].forEach((s) => $(s).classList.toggle("hidden", list || (s === "#newTip")));
+  $("#jumpBtn").classList.toggle("hidden", list);
+  $("#jumpBack").classList.toggle("hidden", list || !st.backs.length);
 }
 
 async function fetchPageHtml(tid, page, authorid) {
@@ -307,7 +310,8 @@ function floorLabel(lou) {
 function postHtml(p, isNew) {
   const isOp = st.topic && p.authorid === st.topic.authorid;
   const alter = (p.alterinfo || "").match(/\[E(\d{9,})/);
-  return `<article class="post${isOp ? " op" : ""}${isNew ? " new" : ""}" data-lou="${p.lou}">
+  const hit = st.hit && String(p.pid) === st.hit.pid && Date.now() < st.hit.until;
+  return `<article class="post${isOp ? " op" : ""}${isNew ? " new" : ""}${hit ? " hit" : ""}" data-lou="${p.lou}" data-pid="${esc(p.pid)}">
     <div class="phead">
       <span class="uname" data-uid="${esc(p.authorid)}">${esc(nameOf(p.authorid))}</span>
       ${isOp ? '<span class="tag">楼主</span>' : ""}
@@ -334,14 +338,16 @@ function renderMeta() {
   const who = st.mode === "op" ? "只看楼主" : st.mode === "user" ? `只看 ${esc(st.user ? st.user.name : "")}` : "全部发言";
   const t = st.refreshedAt ? hms(new Date(st.refreshedAt)) : "--";
   const auto = Number($("#autoSel").value);
-  $("#meta").innerHTML = `<span class="live">● 实时</span> · ${who} · 共 <b>${st.topic ? st.topic.rows : "-"}</b> 楼`
+  const live = st.jump ? '<span class="stale">跳转浏览中（暂停实时）</span>' : '<span class="live">● 实时</span>';
+  $("#meta").innerHTML = `${live} · ${who} · 共 <b>${st.topic ? st.topic.rows : "-"}</b> 楼`
     + ` · 已加载 ${sortedPosts().length} 条 · 刷新于 ${t}${auto ? `（每 ${auto} 秒自动）` : ""}`;
 }
 
 function updateEdges() {
   const tip = st.done ? "没有更早的了" : st.loading ? "加载中…" : (st.order === "chat" ? "继续上滑加载更早的" : "");
   $("#topMore").textContent = st.order === "chat" ? tip : "";
-  $("#more").textContent = st.order === "desc" ? (st.done ? "没有更早的了" : st.loading ? "加载中…" : "继续下滑加载更早的")
+  if (st.jump) $("#more").textContent = st.loading ? "加载中…" : "继续下滑加载更新的楼层（接上最新后恢复实时刷新）";
+  else $("#more").textContent = st.order === "desc" ? (st.done ? "没有更早的了" : st.loading ? "加载中…" : "继续下滑加载更早的")
     : "已是最新 · 自动刷新中";
 }
 
@@ -355,12 +361,15 @@ async function start() {
   st.posts = new Map();
   st.users = {};
   st.done = false;
+  st.jump = false;
+  setBack(null);
   st.loading = true;
   renderAll();
   try {
     const d = await fetchPage(st.tid, "e", st.authorid);
     if (gen !== st.gen) return;
     st.topic = { title: d.title, author: d.author, authorid: d.authorid || (st.topic && st.topic.authorid), rows: d.rows };
+    st.per = d.per;
     if (d.fid) st.fid = d.fid;
     rememberThread(st.tid, d.title);
     st.lastPage = st.loPage = st.hiPage = d.page;
@@ -422,6 +431,11 @@ async function loadOlder(gen, silent) {
 
 async function refresh(manual) {
   if (st.loading || !st.topic) return;
+  // 跳转浏览时页面和最新楼层之间隔着很多页：自动刷新跳过，手动刷新直接回到最新
+  if (st.jump) {
+    if (manual) start();
+    return;
+  }
   const btn = $("#reloadBtn");
   if (manual) { btn.disabled = true; btn.textContent = "刷新中"; }
   try {
@@ -458,6 +472,121 @@ function showTip(text) {
   t.classList.remove("hidden");
   clearTimeout(showTip._t);
   showTip._t = setTimeout(() => t.classList.add("hidden"), 6000);
+}
+
+// ---------- 楼层跳转 / 引用跳转 ----------
+// target：{ pid, page }（引用）或 { lou }（全帖楼号）。只看某人时页面上的 lou 是此人的第几帖，不能按楼号找
+function findPost(t) {
+  if (t.pid) return document.querySelector(`#feed .post[data-pid="${t.pid}"]`);
+  return document.querySelector(`#feed .post[data-lou="${t.lou}"]`);
+}
+// 顶栏是 sticky 的，滚到元素后再让出顶栏高度
+function scrollToEl(el) {
+  window.scrollTo(0, el.getBoundingClientRect().top + window.scrollY - $("#top").offsetHeight - 6);
+}
+// 整页重绘会重建楼层元素，高亮和跟随都按 pid 记
+function flashPost(el) {
+  scrollToEl(el);
+  el.classList.remove("hit");
+  void el.offsetWidth;
+  el.classList.add("hit");
+  st.hit = { pid: el.dataset.pid, until: Date.now() + 2600 };
+  // 上方图片陆续加载会把目标挤下去，短时间内跟住它；手指一碰就放手
+  st.anchor = { pid: el.dataset.pid, until: Date.now() + 4000 };
+}
+const postByPid = (pid) => document.querySelector(`#feed .post[data-pid="${pid}"]`);
+// 返回栈：view 项是跳转前的整个视图（只记最初那个），其余是页内位置，「返回」逐层退回
+function setBack(b) {
+  if (!b) st.backs = [];
+  else if (!(b.view && st.backs.some((x) => x.view))) st.backs.push(b);
+  $("#jumpBack").classList.toggle("hidden", !st.backs.length);
+}
+// 记住屏幕最上面那条楼层和它的位置，上方插入内容后也能回到原处
+function viewSpot() {
+  const y = $("#top").offsetHeight + 8;
+  const el = document.elementFromPoint(window.innerWidth / 2, y);
+  const post = el && el.closest("#feed .post");
+  return post ? { pid: post.dataset.pid, off: post.getBoundingClientRect().top } : { y: window.scrollY };
+}
+const markOn = (attr, val) => $$(`[${attr}]`).forEach((x) => x.classList.toggle("on", x.getAttribute(attr) === val));
+
+async function jumpTo(t) {
+  const inDom = (t.pid || st.mode === "all") && findPost(t);
+  if (inDom) {
+    setBack(viewSpot());
+    return flashPost(inDom);
+  }
+  const back = { view: true, mode: st.mode, user: st.user, order: st.order, range: st.range };
+  const page = t.page || Math.floor(t.lou / (st.per || 20)) + 1;
+  if (st.mode !== "all") setMode("all");
+  st.range = "0";
+  markOn("data-range", "0");
+  st.order = "chat";
+  markOn("data-order", "chat");
+  const gen = ++st.gen;
+  st.posts = new Map();
+  st.loading = true;
+  st.done = false;
+  renderAll();
+  try {
+    const d = await fetchPage(st.tid, page, null);
+    if (gen !== st.gen) return;
+    addPosts(d);
+    st.loPage = st.hiPage = d.page;
+    st.lastPage = d.pages;
+    st.done = d.page <= 1;
+    st.jump = d.page < d.pages;
+    st.loading = false;
+    setBack(back);
+    renderAll();
+    const el = findPost(t);
+    if (el) flashPost(el);
+    else { window.scrollTo(0, 0); showTip("这一页里没找到这层楼（可能已被删除）"); }
+  } catch (e) {
+    if (gen !== st.gen) return;
+    st.loading = false;
+    setBack(back);
+    $("#feed").innerHTML = `<div class="empty err">跳转失败：${esc(e.message)}</div>`;
+  }
+}
+
+// 跳转浏览时往下加载更新的楼层；接上最后一页后恢复成实时刷新
+async function loadNewer(gen) {
+  if (st.loading || !st.jump) return;
+  st.loading = true;
+  updateEdges();
+  try {
+    const pages = [];
+    for (let p = st.hiPage + 1; p <= st.lastPage && pages.length < BATCH_PAGES; p++) pages.push(p);
+    const ds = await Promise.all(pages.map((p) => fetchPage(st.tid, p, null)));
+    if (gen !== st.gen) return;
+    ds.forEach(addPosts);
+    if (pages.length) st.hiPage = Math.max(...pages);
+    st.lastPage = Math.max(st.lastPage, ...ds.map((d) => d.pages));
+    if (st.hiPage >= st.lastPage) st.jump = false;
+    st.loading = false;
+    renderAll();
+  } catch (e) {
+    st.loading = false;
+    $("#more").textContent = `加载失败：${e.message}`;
+  }
+}
+
+function goBack() {
+  const b = st.backs.pop();
+  $("#jumpBack").classList.toggle("hidden", !st.backs.length);
+  if (!b) return;
+  if (!b.view) {
+    const el = b.pid && postByPid(b.pid);
+    return window.scrollTo(0, el ? el.getBoundingClientRect().top + window.scrollY - b.off : b.y || 0);
+  }
+  setBack(null);
+  if (b.mode === "user") setMode("user", b.user); else setMode(b.mode);
+  st.range = b.range;
+  markOn("data-range", b.range);
+  st.order = b.order;
+  markOn("data-order", b.order);
+  start();
 }
 
 function refreshCurrent() {
@@ -575,12 +704,14 @@ function bind() {
   $$("[data-order]").forEach((b) => b.onclick = () => {
     st.order = b.dataset.order;
     $$("[data-order]").forEach((x) => x.classList.toggle("on", x === b));
+    if (st.jump) return start();
     renderAll();
     if (st.order === "chat") scrollToBottom(); else window.scrollTo(0, 0);
   });
   $$("[data-range]").forEach((b) => b.onclick = async () => {
     st.range = b.dataset.range;
     $$("[data-range]").forEach((x) => x.classList.toggle("on", x === b));
+    if (st.jump) return start();
     const gen = st.gen;
     renderAll();
     await fillOlder(gen);
@@ -592,7 +723,9 @@ function bind() {
     if (st.order === "chat" && ents.some((e) => e.isIntersecting)) loadOlder(st.gen, false);
   }, { rootMargin: `${PREFETCH_PX}px 0px 0px 0px` }).observe($("#topMore"));
   new IntersectionObserver((ents) => {
-    if (st.order === "desc" && ents.some((e) => e.isIntersecting)) loadOlder(st.gen, false);
+    if (!ents.some((e) => e.isIntersecting)) return;
+    if (st.jump) loadNewer(st.gen);
+    else if (st.order === "desc") loadOlder(st.gen, false);
   }, { rootMargin: `0px 0px ${PREFETCH_PX}px 0px` }).observe($("#more"));
 
   window.addEventListener("scroll", () => {
@@ -600,18 +733,47 @@ function bind() {
     if (st.atBottom) $("#newTip").classList.add("hidden");
   }, { passive: true });
   document.addEventListener("load", (e) => {
-    if (e.target instanceof HTMLImageElement && st.order === "chat" && st.atBottom) scrollToBottom();
+    if (!(e.target instanceof HTMLImageElement)) return;
+    const a = st.anchor;
+    const ael = a && Date.now() < a.until && postByPid(a.pid);
+    if (ael) return scrollToEl(ael);
+    if (st.order === "chat" && st.atBottom) scrollToBottom();
   }, true);
+  window.addEventListener("touchstart", () => { st.anchor = null; }, { passive: true });
+  $("#jumpBack").onclick = goBack;
+  $("#jumpBtn").onclick = () => {
+    $("#jumpInput").value = "";
+    $("#jumpPanel").classList.remove("hidden");
+    setTimeout(() => $("#jumpInput").focus(), 50);
+  };
+  const doJump = () => {
+    const lou = parseInt($("#jumpInput").value, 10);
+    if (isNaN(lou) || lou < 0) return showTip("请输入楼层号");
+    if (st.mode === "all" && st.topic && lou >= st.topic.rows) return showTip(`本帖目前只有 #0 ~ #${st.topic.rows - 1}`);
+    $("#jumpPanel").classList.add("hidden");
+    $("#jumpInput").blur();
+    jumpTo({ lou });
+  };
+  $("#jumpGo").onclick = doJump;
+  $("#jumpInput").addEventListener("keydown", (e) => e.key === "Enter" && doJump());
+  $("#jumpCancel").onclick = () => $("#jumpPanel").classList.add("hidden");
   $("#toTop").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
   $("#toBottom").onclick = () => window.scrollTo({ top: pageBottom(), behavior: "smooth" });
   $("#newTip").onclick = () => { $("#newTip").classList.add("hidden"); if (st.order === "chat") scrollToBottom(); else window.scrollTo(0, 0); };
 
   $("#feed").addEventListener("click", (e) => {
-    const un = e.target.closest(".uname[data-uid]");
+    // 任何位置的用户名都是「只看此人」；引用框/回复条其余区域点了跳到原楼
+    const un = e.target.closest(".uname[data-uid], .at[data-uid]");
     if (un) {
+      e.preventDefault();
       const uid = un.dataset.uid;
-      if (st.topic && uid === st.topic.authorid) setMode("op"); else setMode("user", { uid, name: un.textContent });
+      if (st.topic && uid === st.topic.authorid) setMode("op"); else setMode("user", { uid, name: un.textContent.replace(/^@/, "").trim() });
       return start();
+    }
+    const t = jumpTargetOf(e, st.tid);
+    if (t) {
+      e.preventDefault();
+      return jumpTo(t);
     }
     const img = e.target.closest(".pimg");
     if (img) {
