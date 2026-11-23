@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>安卓手机使用 NGA 实时阅读</title>
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="m.css">
+<style>
+  body { padding: 16px 16px 40px; }
+  h1 { font-size: 20px; color: var(--brown); margin: 6px 0 4px; }
+  h2 { font-size: 16px; color: var(--brown); margin: 22px 0 6px; }
+  h3 { font-size: 14.5px; color: var(--brown2); margin: 14px 0 4px; }
+  ol, ul { padding-left: 22px; margin: 6px 0; }
+  li { margin: 6px 0; }
+  .card { padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .big { display: block; width: 100%; height: 46px; margin: 10px 0; border-radius: 10px; font-size: 16px; font-weight: 700;
+         background: var(--brown); border: none; color: var(--on-accent); text-align: center; line-height: 46px; text-decoration: none; }
+  .ghost { background: var(--btn); color: var(--brown); border: 1px solid var(--btn-border); }
+  pre { overflow: auto; padding: 10px; border-radius: 8px; background: var(--code-bg); font-size: 11.5px; white-space: pre-wrap; word-break: break-all; }
+  .muted { color: var(--muted); font-size: 13px; }
+  code { padding: 0 4px; border-radius: 3px; background: var(--code-bg); font-size: 12.5px; word-break: break-all; }
+  .tag { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; font-size: 12px; vertical-align: 2px; }
+</style>
+</head>
+<body>
+<h1>安卓手机使用 NGA 实时阅读</h1>
+<p class="muted">和 iPhone 版是同一个页面：直接在 NGA 的网页里读取帖子，刷新是实时的，不经过任何服务器。两种方式任选一种。</p>
+
+<h2>方式一：Firefox + 油猴<span class="tag" style="background:var(--brown2);color:var(--on-accent)">推荐</span></h2>
+<p class="muted">装一次，以后点桌面图标就直接打开。</p>
+<div class="card">
+  <ol>
+    <li>在应用商店安装 <b>Firefox 浏览器</b>（火狐）</li>
+    <li>用 Firefox 打开下面的链接，安装 <b>Tampermonkey</b>（油猴）扩展：
+      <a class="big ghost" href="https://addons.mozilla.org/android/addon/tampermonkey/">安装 Tampermonkey 扩展</a></li>
+    <li>还是在 Firefox 里，打开下面的链接，在油猴弹出的页面点 <b>安装</b>：
+      <a class="big" href="nga-live.user.js">安装「NGA 实时阅读」脚本</a></li>
+    <li>打开 <code>https://bbs.nga.cn/nga_live</code> 就进入实时阅读
+      <a class="big ghost" href="https://bbs.nga.cn/nga_live">打开 NGA 实时阅读</a></li>
+    <li>（可选）在这个页面点 Firefox 菜单 <b>⋮</b> → <b>添加到主屏幕</b>，以后点桌面图标直接打开</li>
+  </ol>
+</div>
+
+<h2>方式二：Chrome 书签（不用装任何东西）</h2>
+<p class="muted">每次打开都要在地址栏点一下书签，适合偶尔看看。</p>
+<button id="copy" class="big">复制书签代码</button>
+<p id="copyTip" class="muted"></p>
+<pre id="code"></pre>
+<div class="card">
+  <ol>
+    <li>在 Chrome 里随便打开一个网页，点菜单 <b>⋮</b> 里的 <b>☆</b> 加书签</li>
+    <li>点底部弹出的 <b>修改</b>（或到 <b>⋮ → 书签</b> 里长按刚才的书签 → 修改）</li>
+    <li>名称改成 <b>nga</b>，网址<b>全部删掉</b>，长按粘贴刚才复制的代码，保存</li>
+    <li>打开 <code>https://bbs.nga.cn/nga_live</code>（会显示 NGA 的错误页，正常）</li>
+    <li>点地址栏，输入 <b>nga</b>，在下拉提示里点那个<b>书签</b>（不是搜索）就进入实时阅读</li>
+  </ol>
+</div>
+
+<h2>使用说明</h2>
+<div class="card">
+  <ul>
+    <li>默认每 30 秒自动刷新，也可以点「刷新」；切回前台时会立刻刷新一次</li>
+    <li>左上角 <b>‹</b> 回到版面帖子列表，点任意帖子打开</li>
+    <li>右上角 <b>⋯</b>：自动刷新间隔、主题、打开其他帖子、登录 NGA（登录后所有用户名都能显示）</li>
+    <li>点引用框跳到原楼，右下角 <b>#</b> 按楼号跳转，<b>↩</b> 回到原来的位置</li>
+    <li>点用户名只看这个人</li>
+    <li>页面会自动更新到最新版本，不用重新安装</li>
+  </ul>
+</div>
+<p class="muted">其他支持用户脚本的浏览器（如 Via、X 浏览器）也可以导入上面的脚本链接，作者未测试。</p>
+
+<script>
+  const code = "javascript:(function(){var s=document.createElement('script');s.src='https://vitocichen.github.io/NGA/loader.js?'+Date.now();(document.body||document.documentElement).appendChild(s)})()";
+  document.getElementById("code").textContent = code;
+  document.getElementById("copy").onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      document.getElementById("copyTip").textContent = "已复制，按下面的步骤粘贴到书签网址里";
+    } catch (e) {
+      const r = document.createRange();
+      r.selectNodeContents(document.getElementById("code"));
+      getSelection().removeAllRanges();
+      getSelection().addRange(r);
+      document.getElementById("copyTip").textContent = "自动复制失败，已选中下面的代码，请长按选择「复制」";
+    }
+  };
+</script>
+</body>
+</html>

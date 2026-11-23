@@ -24,7 +24,8 @@ WATCH_MAX = 5
 WATCH_DAYS = 3
 WATCH_FILE = os.path.join(ROOT, "data", "watch.json")
 STATIC_FILES = ["index.html", "m.css", "m.js", "manifest.json", "icon-180.png", "icon-512.png",
-                "live.html", "live.css", "live.js", "install.html", "scriptable.js"]
+                "live.html", "live.css", "live.js", "install.html", "scriptable.js",
+                "android.html", "loader.js", "nga-live.user.js"]
 
 
 def collect(client, tid, authorid, pages, since=0):
