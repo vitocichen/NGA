@@ -1,0 +1,22 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.vitocichen.ngalive"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.vitocichen.ngalive"
+        minSdk 24
+        // 34：不强制全面屏，页面不会顶到状态栏下面
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

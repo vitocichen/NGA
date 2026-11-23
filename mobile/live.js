@@ -753,6 +753,17 @@ async function checkAccount() {
   } catch (e) { /* 忽略 */ }
 }
 
+// 安卓 App 的返回键：先关面板，再从帖子回到列表；返回 false 时 App 退出
+window.__androidBack = () => {
+  const open = ["#loginPanel", "#jumpPanel", "#userPanel", "#menuPanel", "#lightbox"].find((s) => !$(s).classList.contains("hidden"));
+  if (open) {
+    if (open === "#loginPanel") closeLogin(); else $(open).classList.add("hidden");
+    return true;
+  }
+  if (st.view === "thread") { showList(st.fid || lst.fid); return true; }
+  return false;
+};
+
 // ---------- 事件 ----------
 function bind() {
   $("#reloadBtn").onclick = () => refresh(true);

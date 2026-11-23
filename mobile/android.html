@@ -25,9 +25,24 @@
 </head>
 <body>
 <h1>安卓手机使用 NGA 实时阅读</h1>
-<p class="muted">和 iPhone 版是同一个页面：直接在 NGA 的网页里读取帖子，刷新是实时的，不经过任何服务器。两种方式任选一种。</p>
+<p class="muted">和 iPhone 版是同一个页面：直接读取 NGA，刷新是实时的，不经过任何服务器。</p>
 
-<h2>方式一：Firefox + 油猴<span class="tag" style="background:var(--brown2);color:var(--on-accent)">推荐</span></h2>
+<h2>安装 App<span class="tag" style="background:var(--brown2);color:var(--on-accent)">推荐</span></h2>
+<a class="big" href="nga-live.apk" download="NGA实时.apk">下载 NGA实时 App（APK）</a>
+<div class="card">
+  <ol>
+    <li>点上面的按钮下载，下载完点通知栏里的文件安装</li>
+    <li>如果提示「禁止安装未知来源应用」，按提示允许当前浏览器安装应用</li>
+    <li>如果提示「风险应用」「未经检测」，点<b>继续安装</b>或<b>仍然安装</b>（这个 App 没有上架应用商店，只申请了联网权限）</li>
+    <li>装好后桌面出现 <b>NGA实时</b>，点开即用</li>
+  </ol>
+  <p class="muted">功能会随网页自动更新，一般不用重新安装 App。</p>
+</div>
+
+<h2>不想装 App：浏览器方式</h2>
+<p class="muted">下面两种方式和 App 效果一样，任选一种。</p>
+
+<h3>方式一：Firefox + 油猴</h3>
 <p class="muted">装一次，以后点桌面图标就直接打开。</p>
 <div class="card">
   <ol>
@@ -42,7 +57,7 @@
   </ol>
 </div>
 
-<h2>方式二：Chrome 书签（不用装任何东西）</h2>
+<h3>方式二：Chrome 书签（不用装任何东西）</h3>
 <p class="muted">每次打开都要在地址栏点一下书签，适合偶尔看看。</p>
 <button id="copy" class="big">复制书签代码</button>
 <p id="copyTip" class="muted"></p>
@@ -63,6 +78,7 @@
     <li>默认每 30 秒自动刷新，也可以点「刷新」；切回前台时会立刻刷新一次</li>
     <li>左上角 <b>‹</b> 回到版面帖子列表，点任意帖子打开</li>
     <li>右上角 <b>⋯</b>：自动刷新间隔、主题、打开其他帖子、登录 NGA（登录后所有用户名都能显示）</li>
+    <li>App 里按手机<b>返回键</b>：先关掉弹出的面板，在帖子里回到帖子列表，在列表页再按就退出</li>
     <li>点引用框跳到原楼，右下角 <b>#</b> 按楼号跳转，<b>↩</b> 回到原来的位置</li>
     <li>点用户名只看这个人</li>
     <li>页面会自动更新到最新版本，不用重新安装</li>

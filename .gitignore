@@ -15,3 +15,9 @@ _site/
 
 # Mac 启动脚本创建的运行环境
 .venv/
+
+# android app: gradle cache, local sdk path, icon copied from mobile/icon-512.png at build time
+android/.gradle/
+android/local.properties
+android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+apk/
