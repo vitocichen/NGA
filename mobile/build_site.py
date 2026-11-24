@@ -3,6 +3,7 @@
 由 GitHub Actions 定时运行。环境变量 NGA_COOKIE（可选）用于以登录身份抓取，这样用户名才完整。
 """
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -157,7 +158,21 @@ def main():
         shutil.copy2(os.path.join(here, name), out)
     for shared in ("render.js", "themes.css"):
         shutil.copy2(os.path.join(ROOT, "web", shared), out)
+    version_assets(os.path.join(out, "live.html"), out)
     print("站点已生成：", out)
+
+
+def version_assets(page, out):
+    """给页面引用的脚本和样式加上按内容算的版本号。
+    手机每次都取最新的 live.html，但脚本和样式会被缓存 10 分钟；不加版本号时新页面会配上旧脚本而卡死。"""
+    with open(page, encoding="utf-8") as f:
+        html = f.read()
+    for name in ("themes.css", "m.css", "live.css", "render.js", "live.js"):
+        with open(os.path.join(out, name), "rb") as f:
+            ver = hashlib.sha1(f.read()).hexdigest()[:10]
+        html = html.replace(f'/NGA/{name}"', f'/NGA/{name}?v={ver}"')
+    with open(page, "w", encoding="utf-8") as f:
+        f.write(html)
 
 
 if __name__ == "__main__":
