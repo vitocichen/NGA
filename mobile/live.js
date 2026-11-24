@@ -203,9 +203,6 @@ function renderList(updated) {
     || `<div class="empty">${lst.loading ? "加载中…" : "没有帖子"}</div>`;
   const forum = FORUM_NAMES[lst.fid] || lst.forum;
   $("#listTitle").textContent = forum ? `${forum} · 帖子列表` : "帖子列表";
-  const t = lst.refreshedAt ? hms(new Date(lst.refreshedAt)) : "--";
-  const auto = Number($("#autoSel").value);
-  $("#listMeta").innerHTML = `<span class="live">● 实时</span> · 按最后回复排序 · 已加载 ${list.length} 帖 · 刷新于 ${t}${auto ? `（每 ${auto} 秒自动）` : ""}`;
   $("#listMore").textContent = lst.loading ? "加载中…" : lst.page >= lst.pages ? "没有更多了" : "继续下滑加载更多";
 }
 
@@ -246,7 +243,6 @@ async function refreshList() {
     if (keepTop) window.scrollTo(0, 0);
     return updated.size;
   } catch (e) {
-    $("#listMeta").innerHTML += ` <span class="err">刷新失败：${esc(e.message)}</span>`;
     return -1;
   }
 }
@@ -341,24 +337,15 @@ function renderAll(newLous) {
   const list = sortedPosts();
   $("#feed").innerHTML = list.length ? list.map((p) => postHtml(p, newLous && newLous.has(p.lou))).join("")
     : `<div class="empty">${st.loading ? "加载中…" : "还没有发言"}</div>`;
-  renderMeta();
   updateEdges();
-}
-
-function renderMeta() {
-  const who = st.mode === "op" ? "只看楼主" : st.mode === "user" ? `只看 ${esc(st.user ? st.user.name : "")}` : "全部发言";
-  const t = st.refreshedAt ? hms(new Date(st.refreshedAt)) : "--";
-  const auto = Number($("#autoSel").value);
-  const live = st.jump ? '<span class="stale">跳转浏览中（暂停实时）</span>' : '<span class="live">● 实时</span>';
-  $("#meta").innerHTML = `${live} · ${who} · 共 <b>${st.topic ? st.topic.rows : "-"}</b> 楼`
-    + ` · 已加载 ${sortedPosts().length} 条 · 刷新于 ${t}${auto ? `（每 ${auto} 秒自动）` : ""}`;
 }
 
 function updateEdges() {
   $("#topMore").textContent = st.done ? "没有更早的了" : st.loading ? "加载中…" : "继续上滑加载更早的";
   if (st.pulling) return;
+  const t = st.refreshedAt ? hms(new Date(st.refreshedAt)) : "--";
   if (st.jump) $("#more").textContent = st.loading ? "加载中…" : "继续下滑加载更新的楼层（接上最新后恢复实时刷新）";
-  else $("#more").textContent = "已是最新 · 继续上拉立即刷新";
+  else $("#more").textContent = `${t} 刷新 · 继续上拉立即刷新`;
 }
 
 function addPosts(d) {
@@ -462,7 +449,6 @@ async function refresh(manual) {
     else if (fresh.size) showTip(`↓ 新增 ${fresh.size} 楼`);
     return fresh.size;
   } catch (e) {
-    $("#meta").innerHTML += ` <span class="err">刷新失败：${esc(e.message)}</span>`;
     return -1;
   }
 }
@@ -590,7 +576,7 @@ function setAuto() {
   const sec = Number($("#autoSel").value);
   localStorage.setItem("live_auto", String(sec));
   if (sec) st.autoTimer = setInterval(() => { if (!document.hidden) refreshCurrent(); }, sec * 1000);
-  if (st.view === "list") renderList(); else renderMeta();
+  if (st.view === "list") renderList(); else updateEdges();
 }
 
 // ---------- 帖子与用户 ----------

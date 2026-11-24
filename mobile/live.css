@@ -13,6 +13,10 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* 顶栏尽量矮，多留地方给帖子 */
+#top .bar:last-child, #listTop .bar:last-child { margin-bottom: 0; }
+#top .seg button { padding: 3px 12px; font-size: 13px; }
+
 /* 帖子列表 */
 #listFeed { padding: 8px 0; }
 .topic {
