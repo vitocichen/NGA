@@ -435,6 +435,7 @@ function jumpTo(t) {
 }
 
 function jumpBack() {
+  state.anchor = null;
   const b = (state.jumpStack || []).pop();
   $("#jumpBackBtn").classList.toggle("hidden", !state.jumpStack || !state.jumpStack.length);
   if (!b) return;

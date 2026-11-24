@@ -15,8 +15,6 @@ const st = {
   mode: "all",
   authorid: null,
   user: null,
-  order: "chat",
-  range: "0",
   topic: null,
   lastPage: 1,
   loPage: 1,
@@ -230,10 +228,8 @@ async function loadListPage() {
   }
 }
 
-async function refreshList(manual) {
-  if (lst.loading) return;
-  const btn = $("#listReload");
-  if (manual) { btn.disabled = true; btn.textContent = "刷新中"; }
+async function refreshList() {
+  if (lst.loading) return -1;
   try {
     const d = await fetchList(lst.fid, 1);
     lst.forum = d.forum || lst.forum;
@@ -248,10 +244,10 @@ async function refreshList(manual) {
     const keepTop = window.scrollY < 40;
     renderList(lst.loaded ? updated : null);
     if (keepTop) window.scrollTo(0, 0);
+    return updated.size;
   } catch (e) {
     $("#listMeta").innerHTML += ` <span class="err">刷新失败：${esc(e.message)}</span>`;
-  } finally {
-    if (manual) { btn.disabled = false; btn.textContent = "刷新"; }
+    return -1;
   }
 }
 
@@ -312,18 +308,8 @@ async function fetchPageHtml(tid, page, authorid) {
 }
 
 // ---------- 视图 ----------
-function inRange(p) {
-  if (st.range === "0") return true;
-  if (st.range === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return p.ts >= d / 1000; }
-  return p.ts >= nowTs() - Number(st.range);
-}
-function rangeStart() {
-  if (st.range === "0") return 0;
-  if (st.range === "today") { const d = new Date(); d.setHours(0, 0, 0, 0); return d / 1000; }
-  return nowTs() - Number(st.range);
-}
 function sortedPosts() {
-  return [...st.posts.values()].filter(inRange).sort((a, b) => a.lou - b.lou);
+  return [...st.posts.values()].sort((a, b) => a.lou - b.lou);
 }
 function nameOf(uid) {
   const u = st.users[uid];
@@ -353,9 +339,8 @@ function postHtml(p, isNew) {
 
 function renderAll(newLous) {
   const list = sortedPosts();
-  if (st.order === "desc") list.reverse();
   $("#feed").innerHTML = list.length ? list.map((p) => postHtml(p, newLous && newLous.has(p.lou))).join("")
-    : `<div class="empty">${st.loading ? "加载中…" : "这个范围内没有发言"}</div>`;
+    : `<div class="empty">${st.loading ? "加载中…" : "还没有发言"}</div>`;
   renderMeta();
   updateEdges();
 }
@@ -370,11 +355,10 @@ function renderMeta() {
 }
 
 function updateEdges() {
-  const tip = st.done ? "没有更早的了" : st.loading ? "加载中…" : (st.order === "chat" ? "继续上滑加载更早的" : "");
-  $("#topMore").textContent = st.order === "chat" ? tip : "";
+  $("#topMore").textContent = st.done ? "没有更早的了" : st.loading ? "加载中…" : "继续上滑加载更早的";
+  if (st.pulling) return;
   if (st.jump) $("#more").textContent = st.loading ? "加载中…" : "继续下滑加载更新的楼层（接上最新后恢复实时刷新）";
-  else $("#more").textContent = st.order === "desc" ? (st.done ? "没有更早的了" : st.loading ? "加载中…" : "继续下滑加载更早的")
-    : "已是最新 · 自动刷新中";
+  else $("#more").textContent = "已是最新 · 继续上拉立即刷新";
 }
 
 function addPosts(d) {
@@ -408,7 +392,7 @@ async function start() {
     await fillOlder(gen);
     if (gen !== st.gen) return;
     renderAll();
-    if (st.order === "chat") scrollToBottom(); else window.scrollTo(0, 0);
+    scrollToBottom();
   } catch (e) {
     if (gen !== st.gen) return;
     st.loading = false;
@@ -419,19 +403,14 @@ async function start() {
   }
 }
 
-// 首屏楼层太少或选了时间范围时，自动往前补页
+// 首屏楼层太少时（最后一页刚翻页、只看某人）自动往前补页
 async function fillOlder(gen) {
   let n = 0;
-  const since = rangeStart();
-  while (!st.done && n < MAX_AUTO_PAGES && gen === st.gen) {
-    const all = sortedPostsAll();
-    const enough = since ? all.length && all[0].ts < since : sortedPosts().length >= 30;
-    if (enough) break;
+  while (!st.done && n < MAX_AUTO_PAGES && gen === st.gen && st.posts.size < 30) {
     await loadOlder(gen, true);
     n++;
   }
 }
-function sortedPostsAll() { return [...st.posts.values()].sort((a, b) => a.lou - b.lou); }
 
 async function loadOlder(gen, silent) {
   if (st.loading || st.done) return;
@@ -449,7 +428,7 @@ async function loadOlder(gen, silent) {
     st.loading = false;
     if (!silent) {
       renderAll();
-      if (st.order === "chat") window.scrollTo(0, document.documentElement.scrollHeight - keep);
+      window.scrollTo(0, document.documentElement.scrollHeight - keep);
     }
   } catch (e) {
     st.loading = false;
@@ -464,8 +443,6 @@ async function refresh(manual) {
     if (manual) start();
     return;
   }
-  const btn = $("#reloadBtn");
-  if (manual) { btn.disabled = true; btn.textContent = "刷新中"; }
   try {
     const before = new Set(st.posts.keys());
     const last = await fetchPage(st.tid, "e", st.authorid);
@@ -481,16 +458,12 @@ async function refresh(manual) {
     const stick = isAtBottom();
     // 新楼层只会加在下方，停在中间时当前位置不受影响
     renderAll(fresh);
-    if (st.order === "chat") {
-      if (stick) scrollToBottom();
-      else if (fresh.size) showTip(`↓ 新增 ${fresh.size} 楼`);
-    } else if (fresh.size && window.scrollY > 40) {
-      showTip(`↑ 新增 ${fresh.size} 楼`);
-    }
+    if (stick) scrollToBottom();
+    else if (fresh.size) showTip(`↓ 新增 ${fresh.size} 楼`);
+    return fresh.size;
   } catch (e) {
     $("#meta").innerHTML += ` <span class="err">刷新失败：${esc(e.message)}</span>`;
-  } finally {
-    if (manual) { btn.disabled = false; btn.textContent = "刷新"; }
+    return -1;
   }
 }
 
@@ -536,21 +509,15 @@ function viewSpot() {
   const post = el && el.closest("#feed .post");
   return post ? { pid: post.dataset.pid, off: post.getBoundingClientRect().top } : { y: window.scrollY };
 }
-const markOn = (attr, val) => $$(`[${attr}]`).forEach((x) => x.classList.toggle("on", x.getAttribute(attr) === val));
-
 async function jumpTo(t) {
   const inDom = (t.pid || st.mode === "all") && findPost(t);
   if (inDom) {
     setBack(viewSpot());
     return flashPost(inDom);
   }
-  const back = { view: true, mode: st.mode, user: st.user, order: st.order, range: st.range };
+  const back = { view: true, mode: st.mode, user: st.user };
   const page = t.page || Math.floor(t.lou / (st.per || 20)) + 1;
   if (st.mode !== "all") setMode("all");
-  st.range = "0";
-  markOn("data-range", "0");
-  st.order = "chat";
-  markOn("data-order", "chat");
   const gen = ++st.gen;
   st.posts = new Map();
   st.loading = true;
@@ -601,6 +568,7 @@ async function loadNewer(gen) {
 }
 
 function goBack() {
+  st.anchor = null;
   const b = st.backs.pop();
   $("#jumpBack").classList.toggle("hidden", !st.backs.length);
   if (!b) return;
@@ -610,10 +578,6 @@ function goBack() {
   }
   setBack(null);
   if (b.mode === "user") setMode("user", b.user); else setMode(b.mode);
-  st.range = b.range;
-  markOn("data-range", b.range);
-  st.order = b.order;
-  markOn("data-order", b.order);
   start();
 }
 
@@ -764,12 +728,51 @@ window.__androidBack = () => {
   return false;
 };
 
+// ---------- 拉动刷新 ----------
+// 帖子页：已经在底部时继续往上拉；帖子列表：已经在顶部时继续往下拉。松手时超过 PULL_PX 就立即刷新
+const PULL_PX = 70;
+function bindPull() {
+  let startY = null, dist = 0;
+  const list = () => st.view === "list";
+  const show = (text, ms) => (list() ? toast(text, ms || 1500) : ($("#more").textContent = text));
+  const reset = () => { st.pulling = false; $("#more").classList.remove("pulling"); updateEdges(); };
+
+  window.addEventListener("touchstart", (e) => {
+    startY = null;
+    dist = 0;
+    if (e.touches.length !== 1 || st.pulling) return;
+    const atEdge = list() ? window.scrollY <= 0 : (isAtBottom() && !st.jump && !st.loading);
+    if (atEdge) startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  window.addEventListener("touchmove", (e) => {
+    if (startY === null) return;
+    const y = e.touches[0].clientY;
+    dist = list() ? y - startY : startY - y;
+    if (dist < 12) return;
+    st.pulling = true;
+    if (!list()) $("#more").classList.add("pulling");
+    show(dist >= PULL_PX ? "松开立即刷新" : list() ? "继续下拉刷新" : "继续上拉刷新");
+  }, { passive: true });
+
+  window.addEventListener("touchend", async () => {
+    if (startY === null) return;
+    startY = null;
+    if (!st.pulling) return;
+    if (dist < PULL_PX) return list() ? (st.pulling = false) : reset();
+    const isList = list();
+    show("刷新中…", 8000);
+    const n = isList ? await refreshList() : await refresh(true);
+    const got = isList ? `已刷新，${n} 个帖子有新回复` : `已刷新，新增 ${n} 楼`;
+    show(n > 0 ? got : n === 0 ? "已刷新，暂无新回复" : n < 0 ? "刷新失败，稍后再试" : "已刷新", 1800);
+    setTimeout(() => (isList ? (st.pulling = false) : reset()), 1800);
+  });
+}
+
 // ---------- 事件 ----------
 function bind() {
-  $("#reloadBtn").onclick = () => refresh(true);
   $$(".menuBtn").forEach((b) => b.onclick = () => { checkAccount(); $("#menuPanel").classList.remove("hidden"); });
   $("#backBtn").onclick = () => showList(st.fid || lst.fid);
-  $("#listReload").onclick = () => refreshList(true);
   $("#listFeed").addEventListener("click", (e) => {
     const t = e.target.closest(".topic[data-tid]");
     if (!t) return;
@@ -818,32 +821,13 @@ function bind() {
   $("#userName").addEventListener("keydown", (e) => e.key === "Enter" && pickName());
   $("#userCancel").onclick = () => $("#userPanel").classList.add("hidden");
 
-  $$("[data-order]").forEach((b) => b.onclick = () => {
-    st.order = b.dataset.order;
-    $$("[data-order]").forEach((x) => x.classList.toggle("on", x === b));
-    if (st.jump) return start();
-    renderAll();
-    if (st.order === "chat") scrollToBottom(); else window.scrollTo(0, 0);
-  });
-  $$("[data-range]").forEach((b) => b.onclick = async () => {
-    st.range = b.dataset.range;
-    $$("[data-range]").forEach((x) => x.classList.toggle("on", x === b));
-    if (st.jump) return start();
-    const gen = st.gen;
-    renderAll();
-    await fillOlder(gen);
-    renderAll();
-    if (st.order === "chat") scrollToBottom(); else window.scrollTo(0, 0);
-  });
-
   new IntersectionObserver((ents) => {
-    if (st.order === "chat" && ents.some((e) => e.isIntersecting)) loadOlder(st.gen, false);
+    if (st.view === "thread" && ents.some((e) => e.isIntersecting)) loadOlder(st.gen, false);
   }, { rootMargin: `${PREFETCH_PX}px 0px 0px 0px` }).observe($("#topMore"));
   new IntersectionObserver((ents) => {
-    if (!ents.some((e) => e.isIntersecting)) return;
-    if (st.jump) loadNewer(st.gen);
-    else if (st.order === "desc") loadOlder(st.gen, false);
+    if (st.jump && ents.some((e) => e.isIntersecting)) loadNewer(st.gen);
   }, { rootMargin: `0px 0px ${PREFETCH_PX}px 0px` }).observe($("#more"));
+  bindPull();
 
   window.addEventListener("scroll", () => {
     st.atBottom = isAtBottom();
@@ -854,7 +838,7 @@ function bind() {
     const a = st.anchor;
     const ael = a && Date.now() < a.until && postByPid(a.pid);
     if (ael) return scrollToEl(ael);
-    if (st.order === "chat" && st.atBottom) scrollToBottom();
+    if (st.view === "thread" && st.atBottom) scrollToBottom();
   }, true);
   window.addEventListener("touchstart", () => { st.anchor = null; }, { passive: true });
   $("#jumpBack").onclick = goBack;
@@ -876,7 +860,7 @@ function bind() {
   $("#jumpCancel").onclick = () => $("#jumpPanel").classList.add("hidden");
   $("#toTop").onclick = () => window.scrollTo({ top: 0, behavior: "smooth" });
   $("#toBottom").onclick = () => window.scrollTo({ top: pageBottom(), behavior: "smooth" });
-  $("#newTip").onclick = () => { $("#newTip").classList.add("hidden"); if (st.order === "chat") scrollToBottom(); else window.scrollTo(0, 0); };
+  $("#newTip").onclick = () => { $("#newTip").classList.add("hidden"); scrollToBottom(); };
 
   $("#feed").addEventListener("click", (e) => {
     // 任何位置的用户名都是「只看此人」；引用框/回复条其余区域点了跳到原楼

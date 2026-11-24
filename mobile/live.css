@@ -1,7 +1,6 @@
 /* 实时版在 m.css 基础上的补充 */
 .menuBtn { height: 34px; padding: 0 12px; flex: none; font-size: 18px; line-height: 1; }
 #backBtn { height: 34px; padding: 0 10px; flex: none; font-size: 22px; line-height: 1; font-weight: 700; }
-#reloadBtn, #listReload { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; height: 34px; flex: none; }
 .list-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: var(--brown); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 帖子列表顶栏和帖子页顶栏一样，让出 iPhone 状态栏（刘海/灵动岛）区域 */
@@ -51,6 +50,8 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
 }
 .meta .live { color: #2e9a4f; font-weight: 700; }
+/* 底部上拉刷新时的提示 */
+#more.pulling { padding: 22px 14px 30px; color: var(--brown); font-weight: 700; }
 /* 引用框/回复条整块可点；手机没有悬停，用常显的「跳到原楼 ›」和按下反馈提示 */
 .qlink { cursor: pointer; -webkit-tap-highlight-color: transparent; }
 .quote.qlink:active { background: var(--table-hover); border-left-color: var(--brown2); }
