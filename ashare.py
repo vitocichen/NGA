@@ -23,7 +23,11 @@ MINUTE_TTL = 20
 EM_HOSTS = ("push2.eastmoney.com", "17.push2.eastmoney.com", "82.push2.eastmoney.com", "91.push2.eastmoney.com")
 EM_GAP = 1.5
 EM_COOLDOWN = 120
+EM_COOLDOWN_MAX = 1800
+SWR_SAVE_GAP = 2
 DIR_MAX_AGE_DAYS = 7
+# 腾讯搜索结果的类型前缀 → 显示名；GP-A 含科创板（GP-A-KCB）
+SEARCH_TYPES = (("GP-A", "A股"), ("ZS", "指数"), ("ETF", "ETF"), ("LOF", "LOF"))
 KLINE_PERIODS = ("day", "week", "month")
 KLINE_COUNT = 180
 KLINE_CACHE_TTL = 60
@@ -79,9 +83,13 @@ class VolClient:
         self._cache = {}
         self._lock = threading.Lock()
         self._pool = ThreadPoolExecutor(max_workers=4)
-        self._em_lock = threading.Lock()
-        self._em_at = 0.0
+        self._em_locks = {}
+        self._em_ats = {}
         self._em_block = {}
+        self._em_fails = {}
+        self._refreshing = set()
+        self._swr_saving = False
+        self._swr = self._load_swr()
 
     def _get(self, url, referer, timeout=8):
         r = self.s.get(url, headers={"Referer": referer}, timeout=timeout)
@@ -238,21 +246,80 @@ class VolClient:
         return data
 
     # ---------- 东方财富：市场概况、板块 ----------
+    # 东财数据：手上有就立刻返回（哪怕过期），过期的在后台重新取；结果存到本机，重启后也能马上显示上次的数据。
+    # 返回值带 at（取到数据的时间戳）和 stale（是否已超过刷新周期），界面据此标注更新时间
+    _EM_ERRORS = (requests.RequestException, ValueError, KeyError, TypeError, IndexError)
+
     def _cached(self, key, ttl, fn):
         now = time.time()
         with self._lock:
-            hit = self._cache.get(key)
+            hit = self._swr.get(key)
         if hit and now - hit[0] < ttl:
-            return hit[1]
+            return {**hit[1], "at": hit[0], "stale": False}
+        if hit:
+            self._refresh_later(key, fn)
+            return {**hit[1], "at": hit[0], "stale": True}
         try:
             data = fn()
-        except (requests.RequestException, ValueError, KeyError, TypeError, IndexError) as e:
-            if hit:
-                return {**hit[1], "stale": True}
+        except self._EM_ERRORS as e:
             raise VolError(f"东方财富数据获取失败：{e}") from e
+        self._store(key, data)
+        return {**data, "at": time.time(), "stale": False}
+
+    def _refresh_later(self, key, fn):
         with self._lock:
-            self._cache[key] = (now, data)
-        return data
+            if key in self._refreshing:
+                return
+            self._refreshing.add(key)
+
+        def run():
+            try:
+                self._store(key, fn())
+            except self._EM_ERRORS:
+                pass
+            finally:
+                with self._lock:
+                    self._refreshing.discard(key)
+        threading.Thread(target=run, daemon=True).start()
+
+    def _swr_file(self):
+        return os.path.join(self.cache_dir, "vol_cache.json") if self.cache_dir else None
+
+    def _store(self, key, data):
+        with self._lock:
+            self._swr[key] = (time.time(), data)
+            start = not self._swr_saving
+            self._swr_saving = True
+        # 短时间内的多次更新合并成一次写盘
+        if start and self._swr_file():
+            threading.Thread(target=self._save_swr, daemon=True).start()
+
+    def _save_swr(self):
+        time.sleep(SWR_SAVE_GAP)
+        with self._lock:
+            snapshot = dict(self._swr)
+            self._swr_saving = False
+        path = self._swr_file()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            tmp = f"{path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, ensure_ascii=False, separators=(",", ":"))
+            os.replace(tmp, path)
+        except OSError:
+            pass
+
+    def _load_swr(self):
+        path = self._swr_file()
+        if not path or not os.path.exists(path):
+            return {}
+        try:
+            with open(path, encoding="utf-8") as f:
+                raw = json.load(f)
+            # 只用最近 3 天的，太旧的没有参考意义
+            return {k: (v[0], v[1]) for k, v in raw.items() if time.time() - v[0] < 3 * 86400}
+        except (OSError, ValueError, TypeError, IndexError):
+            return {}
 
     def _em(self, path, host=None):
         # 东财按 IP 限额，被断开后继续请求只会延长封禁：所有节点都失败时暂停一段时间，期间直接用缓存。
@@ -262,39 +329,50 @@ class VolClient:
         if time.time() < until:
             raise requests.ConnectionError(f"东财请求过于频繁，{int(until - time.time())} 秒后再试")
         last = None
+        with self._lock:
+            lock = self._em_locks.setdefault(family, threading.Lock())
         for h in ([host] * 2 if host else EM_HOSTS[:2]):
-            # 东财短时间内连续请求会被断开，全局排队并保持最小间隔
-            with self._em_lock:
-                wait = self._em_at + EM_GAP - time.time()
+            # 东财短时间内连续请求会被断开：同一域名排队并保持最小间隔，不同域名可以同时请求
+            with lock:
+                wait = self._em_ats.get(family, 0) + EM_GAP - time.time()
                 if wait > 0:
                     time.sleep(wait)
                 try:
                     r = self.s.get(f"https://{h}{path}", headers={"Referer": "https://quote.eastmoney.com/", "Connection": "close"}, timeout=8)
                     r.raise_for_status()
-                    return r.json()
+                    data = r.json()
+                    self._em_fails[family] = 0
+                    return data
                 except (requests.RequestException, ValueError) as e:
                     last = e
                 finally:
-                    self._em_at = time.time()
-        self._em_block[family] = time.time() + EM_COOLDOWN
+                    self._em_ats[family] = time.time()
+        # 被限制时继续试会让封禁延长：连续失败一次，暂停时间翻倍（2、4、8 分钟……最长 30 分钟），成功后恢复
+        fails = self._em_fails.get(family, 0) + 1
+        self._em_fails[family] = fails
+        self._em_block[family] = time.time() + min(EM_COOLDOWN * 2 ** (fails - 1), EM_COOLDOWN_MAX)
         raise last
 
     def overview(self):
         """全市场涨跌分布、主力净流入、昨日涨停表现，以及沪深两市近 60 个交易日日均成交额。"""
         def load():
+            # 涨跌分布在 push2ex 域名，和实时行情的 push2 分开限额，同时请求
+            fb_job = self._pool.submit(self._em, "/getTopicZDFenBu?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt", "push2ex.eastmoney.com")
             d = self._em("/api/qt/ulist.np/get?fltt=2&invt=2&secids=1.000001,0.399106,0.899050,90.BK0815&fields=f12,f3,f62")
             rows = {r["f12"]: r for r in d["data"]["diff"]}
             main = sum(rows[c]["f62"] for c in ("000001", "399106", "899050") if isinstance(rows.get(c, {}).get("f62"), (int, float)))
-            fb = self._em("/getTopicZDFenBu?ut=7eea3edcaed734bea9cbfc24409ed989&dpt=wz.ztzt", "push2ex.eastmoney.com")["data"]
+            fb = fb_job.result()["data"]
             counts = {int(k): v for item in fb["fenbu"] for k, v in item.items()}
             n = lambda keys: sum(counts.get(k, 0) for k in keys)
             # 东财按 1% 一档给家数：±11 是涨跌停，1 表示 0~1%，5 表示 4~5%，以此类推
             buckets = [n([11]), n(range(6, 11)), n(range(2, 6)), n([1]), n([0]), n([-1]), n(range(-5, -1)), n(range(-10, -5)), n([-11])]
             return {"date": str(fb.get("qdate", "")), "main": main, "ztPerf": (rows.get("BK0815") or {}).get("f3"),
                     "buckets": buckets, "up": n(range(1, 12)), "flat": n([0]), "down": n(range(-11, 0))}
+        avg_job = self._pool.submit(self._cached, "avg60", KLINE_TTL, self._avg60)
         data = self._cached("overview", OVERVIEW_TTL, load)
         try:
-            data = {**data, **self._cached("avg60", KLINE_TTL, self._avg60)}
+            avg = avg_job.result()
+            data = {**data, "avg60": avg.get("avg60"), "avgDays": avg.get("avgDays")}
         except VolError:
             pass
         return data
@@ -491,10 +569,11 @@ class VolClient:
                 return res
         except (requests.RequestException, ValueError):
             pass
-        # 搜索不可用时，6 位代码按规则推断市场：6 开头沪市，0/3 开头深市
+        # 搜索不可用时，6 位代码按规则推断市场：6 开头沪市股票、5 开头沪市基金，0/3 开头深市股票、1 开头深市基金
         m = re.fullmatch(r"(?:sh|sz)?(\d{6})", q.lower())
-        if m and m.group(1)[0] in "603":
-            return [{"code": ("sh" if m.group(1)[0] == "6" else "sz") + m.group(1), "name": "", "type": "A股"}]
+        if m and m.group(1)[0] in "60351":
+            c = m.group(1)
+            return [{"code": ("sh" if c[0] in "65" else "sz") + c, "name": "", "type": "基金" if c[0] in "51" else "A股"}]
         return []
 
     def _search_tencent(self, q):
@@ -504,8 +583,9 @@ class VolClient:
         out = []
         for item in (m.group(1).split("^") if m else []):
             p = item.split("~")
-            if len(p) < 5 or p[0] not in ("sh", "sz") or not ("GP-A" in p[4] or p[4].startswith("ZS")):
+            kind = next((label for key, label in SEARCH_TYPES if p[4].startswith(key)), None) if len(p) >= 5 else None
+            if not kind or p[0] not in ("sh", "sz"):
                 continue
             name = json.loads(f'"{p[2]}"') if "\\u" in p[2] else p[2]
-            out.append({"code": p[0] + p[1], "name": name, "type": "指数" if p[4].startswith("ZS") else "A股"})
+            out.append({"code": p[0] + p[1], "name": name, "type": kind})
         return out[:10]

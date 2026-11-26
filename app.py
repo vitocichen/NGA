@@ -26,7 +26,7 @@ if sys.platform == "win32":
 
 import ashare
 import nga_ai
-from nga_api import DATA_DIR, RES_DIR, NgaClient, NgaError, fetch_image
+from nga_api import DATA_DIR, RES_DIR, NgaClient, NgaError, NgaRateLimited, fetch_image
 from nga_login import LoginError, LoginFlow
 
 WEB_DIR = os.path.join(RES_DIR, "web")
@@ -80,6 +80,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(client.forum(q.get("fid", "510567"), int(q.get("page", "1"))))
             elif u.path == "/api/user":
                 self._json(client.find_user(q.get("name", "")))
+            elif u.path == "/api/userhome":
+                self._json(client.user_home(q["uid"], q.get("kind", "topics"), int(q.get("page", "1"))))
+            elif u.path == "/api/pidpage":
+                self._json(client.pid_page(q["pid"]))
             elif u.path == "/api/names":
                 uids = [x for x in q.get("uids", "").split(",") if x.isdigit()][:300]
                 self._json(client.lookup_names(uids))
@@ -118,6 +122,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, fetch_image(url), ctype, "max-age=86400")
             else:
                 self._static(u.path)
+        except NgaRateLimited as e:
+            self._json({"error": str(e), "retry": e.retry}, 503)
         except (NgaError, nga_ai.AiError, ashare.VolError) as e:
             self._json({"error": str(e)}, 502)
         except (KeyError, ValueError) as e:

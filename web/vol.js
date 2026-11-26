@@ -185,6 +185,24 @@ function volCompute(t) {
   };
 }
 
+// ---------- 更新时间 ----------
+// at 是秒级时间戳。超过 3 分钟没更新就明确写「东财暂未更新，显示 xx:xx 的数据」，别让人以为是实时的
+const VOL_OLD_SEC = 180;
+function volTimeText(at, label = "更新于") {
+  if (!at) return "";
+  const d = new Date(at * 1000);
+  const hm = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  const when = sameDay ? `${hm}:${pad(d.getSeconds())}` : `${d.getMonth() + 1}-${d.getDate()} ${hm}`;
+  if (Date.now() / 1000 - at > VOL_OLD_SEC && volIsTradingHours()) return `<span class="vold">东财暂未更新，显示 ${sameDay ? hm : when} 的数据</span>`;
+  return `${label} ${when}`;
+}
+// 腾讯快照的行情时间（yyyyMMddHHmmss）
+function volSnapTime() {
+  const t = Object.values(vol.snap).map((x) => x.time).filter(Boolean).sort().pop();
+  return t ? `行情 ${t.slice(8, 10)}:${t.slice(10, 12)}:${t.slice(12, 14)}` : "";
+}
+
 // ---------- 格式化 ----------
 const volAmt = (v) => (v == null ? "-" : Math.abs(v) >= 1e12 ? (v / 1e12).toFixed(2) + " 万亿" : (v / 1e8).toFixed(Math.abs(v) >= 1e10 ? 0 : Math.abs(v) >= 1e9 ? 1 : 2) + " 亿");
 const volSign = (v, d = 1) => (v == null ? "-" : (v > 0 ? "+" : "") + v.toFixed(d));
@@ -219,7 +237,7 @@ function volRenderOverview(m) {
     <div class="vratio-l"><span class="up">▲ 涨 ${o.up} 家</span><span class="down">跌 ${o.down} 家 ▼</span></div>`;
   }
   box.innerHTML = `
-    <div class="vov-h"><b>市场概况</b><span>${atText}${o && o.stale ? " · 东财数据暂时未更新" : ""}</span></div>
+    <div class="vov-h"><b>市场概况</b><span class="vtime">成交额 ${atText}${o ? " · 涨跌分布 " + volTimeText(o.at) : ""}</span></div>
     <div class="vov-cards">
       <div class="vov-c"><div class="k">涨跌分布</div><div class="v">${o ? `<span class="up">${o.up}</span>:<span class="flat">${o.flat}</span>:<span class="down">${o.down}</span>` : "-"}</div></div>
       <div class="vov-c"><div class="k">主力净流入</div><div class="v ${volCls(o && o.main)}">${o ? volAmt(o.main) : "-"}</div></div>
@@ -330,8 +348,8 @@ function volRenderBoards() {
     return volBoardTable(r.items, true);
   }
   const b = vol.boards;
-  if (!b) { $("#volBoards").innerHTML = `<tbody><tr><td class="vempty">${esc(vol.slowError || "板块加载中…")}</td></tr></tbody>`; meta.textContent = ""; return; }
-  meta.textContent = `共 ${b.total} 个，显示前 ${b.items.length} 个 · ${b.at ? new Date(b.at).toLocaleTimeString() : ""} 更新${b.stale ? "（东财暂时未更新）" : ""}`;
+  if (!b) { $("#volBoards").innerHTML = `<tbody><tr><td class="vempty">${esc(vol.slowError || "正在从东方财富获取板块数据（这一类第一次打开较慢，之后会先显示上次的数据）…")}</td></tr></tbody>`; meta.textContent = ""; return; }
+  meta.innerHTML = `共 ${b.total} 个，显示前 ${b.items.length} 个 · ${volTimeText(b.at)}`;
   volBoardTable(b.items, false);
 }
 
@@ -398,7 +416,9 @@ function volRenderGroups() {
     + '<button class="vgtab vgadd" data-g="new" title="新建分组">＋</button>';
   const g = volGroup();
   const sel = vol.panels.watch.state && (vol.panels.watch.state.fromBoard || vol.panels.watch.state).code;
-  $("#volWatchMeta").textContent = g.items.length ? `${g.items.filter((x) => !volIsBoard(x)).length} 只股票 · ${g.items.filter(volIsBoard).length} 个板块` : "";
+  const boardAts = g.items.filter(volIsBoard).map((x) => volBoardRow(x.code).at).filter(Boolean);
+  $("#volWatchMeta").innerHTML = g.items.length ? `${g.items.filter((x) => !volIsBoard(x)).length} 只股票 · ${g.items.filter(volIsBoard).length} 个板块 · 股票${volSnapTime()}`
+    + (boardAts.length ? ` · 板块${volTimeText(Math.min(...boardAts), "数据")}` : "") : "";
   if (!g.items.length) {
     $("#volWatchTable").innerHTML = '<tbody><tr><td class="vempty">这个分组还是空的：在左上角搜索股票或板块，打开后点「加入分组」；也可以在市场概况的板块表点 ☆</td></tr></tbody>';
     return;
@@ -406,7 +426,13 @@ function volRenderGroups() {
   const rows = g.items.map((it) => {
     if (volIsBoard(it)) {
       const b = volBoardRow(it.code);
-      return { it, board: true, name: b.name || it.name || it.code, sub: "板块", price: b.price, pct: b.pct, amount: b.amount, vr: b.vr, diff: b.diff, base: b.prevAt };
+      // 板块数据来自东财：还没拿到时写明在加载还是被限制，而不是一排「-」
+      const old = b.at && Date.now() / 1000 - b.at > VOL_OLD_SEC && volIsTradingHours();
+      const hm = b.at ? new Date(b.at * 1000).toTimeString().slice(0, 5) : "";
+      const sub = b.pct != null || b.amount != null ? (old ? `板块 · ${hm} 的数据` : "板块")
+        : /频繁|断开|Connection|aborted/i.test(vol.boardErr || "") ? "板块 · 东财限制访问，稍后自动重试"
+        : vol.boardErr ? "板块 · 暂时取不到" : "板块 · 加载中…";
+      return { it, board: true, name: b.name || it.name || it.code, sub, price: b.price, pct: b.pct, amount: b.amount, vr: b.vr, diff: b.diff, base: b.prevAt };
     }
     const s = vol.snap[it.code] || {};
     const m = volCompute({ key: it.code, codes: [it.code] });
@@ -444,17 +470,24 @@ function volDiffText(diff, base) {
 function volBoardRow(code) {
   const q = vol.boardQuotes[code] || {}, t = vol.boardTrends[code] || {};
   return { name: q.name || t.name, price: t.price, pct: q.pct ?? t.pct, amount: q.amount ?? t.amount, vr: q.vr, up: q.up, down: q.down,
-    diff: t.diff, prevAt: t.prevAt };
+    diff: t.diff, prevAt: t.prevAt, at: Math.max(q.at || 0, t.at || 0) || null };
 }
 
 // 自选里的板块行情来自东财，跟着慢速刷新；切换分组、加入板块时马上取一次
 async function volLoadBoardQuotes() {
   const codes = volGroup().items.filter(volIsBoard).map((x) => x.code);
   if (!codes.length) return;
+  const errs = [];
   await Promise.all([
-    volApi("boardtrends", { codes: codes.join(",") }).then((r) => Object.assign(vol.boardTrends, r.items)).catch(() => {}),
-    volApi("boardquotes", { codes: codes.join(",") }).then((r) => Object.assign(vol.boardQuotes, r.items)).catch(() => {}),
+    volApi("boardtrends", { codes: codes.join(",") }).then((r) => {
+      Object.assign(vol.boardTrends, r.items);
+      if (Object.keys(r.errors || {}).length) errs.push(Object.values(r.errors)[0]);
+    }).catch((e) => errs.push(e.message)),
+    volApi("boardquotes", { codes: codes.join(",") }).then((r) => {
+      for (const [c, x] of Object.entries(r.items)) vol.boardQuotes[c] = { ...x, at: r.at };
+    }).catch((e) => errs.push(e.message)),
   ]);
+  vol.boardErr = errs.length === 2 ? errs[0] : "";
   volRenderGroups();
   for (const [key, p] of Object.entries(vol.panels)) if (p.state && p.state.type === "board") volRenderPanel(key);
 }
@@ -482,6 +515,16 @@ function volCloseDrawer() {
   vol.panels.drawer.state = null;
   $("#volDrawer").classList.add("hidden");
 }
+// 自选页右侧详情：没选中时收起，列表占满宽度
+function volCloseDetail() {
+  const p = vol.panels.watch;
+  p.state = null;
+  if (p.chart) { p.chart.dispose(); p.chart = null; p.chartSig = null; }
+  $("#volDetailTitle").innerHTML = "";
+  $("#volDetailBody").innerHTML = "";
+  $("#volWatchBody").classList.add("no-detail");
+  volRenderGroups();
+}
 async function volLoadBoard(key) {
   const d = vol.panels[key].state;
   if (!d || d.type !== "board") return;
@@ -497,6 +540,7 @@ async function volLoadBoard(key) {
 function volRenderPanel(key) {
   const p = vol.panels[key], d = p.state;
   if (!d) return;
+  if (key === "watch") $("#volWatchBody").classList.remove("no-detail");
   $(p.back).classList.toggle("hidden", !(d.type === "stock" && d.fromBoard));
   if (p.remove) {
     const top = d.fromBoard || d;
@@ -808,16 +852,18 @@ async function volSlowTick() {
   vol.slowBusy = true;
   clearTimeout(vol.slowTimer);
   const errs = [];
+  // 后端按东财域名分别排队，这里同时发出，谁先回来先显示
+  const jobs = [volLoadBoardQuotes()];
+  for (const [key, p] of Object.entries(vol.panels)) if (p.state && p.state.type === "board") jobs.push(volLoadBoard(key));
   if (vol.page === "market") {
-    try { vol.overview = await volApi("overview", {}); } catch (e) { errs.push(`市场概况：${e.message}`); }
-    try {
-      const b = await volApi("boards", { type: vol.boardType, sort: vol.boardSort });
-      vol.boards = { ...b, at: Date.now(), type: vol.boardType, sort: vol.boardSort };
-    } catch (e) { errs.push(`板块：${e.message}`); }
-    if (vol.boardQuery) await volRunBoardSearch();
+    jobs.push(volApi("overview", {}).then((o) => { vol.overview = o; volRender(); }).catch((e) => errs.push(`市场概况：${e.message}`)));
+    jobs.push(volApi("boards", { type: vol.boardType, sort: vol.boardSort }).then((b) => {
+      vol.boards = { ...b, type: vol.boardType, sort: vol.boardSort };
+      volRenderBoards();
+    }).catch((e) => errs.push(`板块：${e.message}`)));
+    if (vol.boardQuery) jobs.push(volRunBoardSearch());
   }
-  for (const [key, p] of Object.entries(vol.panels)) if (p.state && p.state.type === "board") await volLoadBoard(key);
-  await volLoadBoardQuotes();
+  await Promise.all(jobs);
   vol.slowError = errs.join("；");
   vol.slowAt = Date.now();
   vol.slowBusy = false;
@@ -825,7 +871,11 @@ async function volSlowTick() {
   volRenderBoards();
   // 请求途中切换了行业/概念或排序：马上按新的再取一次
   const changed = vol.page === "market" && (!vol.boards || vol.boards.type !== vol.boardType || vol.boards.sort !== vol.boardSort);
-  if (vol.active) vol.slowTimer = setTimeout(volSlowTick, changed ? 100 : volIsTradingHours() ? VOL_SLOW_MS : VOL_IDLE_SLOW_MS);
+  // 先拿到的是旧数据时，后端已在后台取新的：几秒后再问一次（最多连续 3 次），新数据不用等满 1 分钟
+  const stale = [vol.overview, vol.boards, ...Object.values(vol.boardTrends)].some((x) => x && x.stale);
+  vol.quickRetry = stale ? (vol.quickRetry || 0) + 1 : 0;
+  const quick = stale && vol.quickRetry <= 3 && volIsTradingHours();
+  if (vol.active) vol.slowTimer = setTimeout(volSlowTick, changed ? 100 : quick ? 6000 : volIsTradingHours() ? VOL_SLOW_MS : VOL_IDLE_SLOW_MS);
 }
 
 function volRender() {
@@ -836,6 +886,8 @@ function volRender() {
   volRenderChart(results.TOTAL);
   volRenderGroups();
   for (const [key, p] of Object.entries(vol.panels)) if (p.state && p.state.type === "stock") volRenderPanel(key);
+  $("#volRhythmTime").textContent = volSnapTime();
+  $("#volIdxTime").textContent = volSnapTime();
   const m = results.TOTAL;
   const phase = m.ready ? m.clock.phase : null;
   const now = new Date();
@@ -860,7 +912,7 @@ function setAppTab(tab) {
   clearTimeout(vol.fastTimer);
   clearTimeout(vol.slowTimer);
   // 帖子区隐藏期间加载的内容没法贴底，切回来时补上；内容不够一屏时继续加载
-  if (!isVol && typeof state !== "undefined" && state.view !== "list") {
+  if (!isVol && typeof state !== "undefined" && state.view === "thread") {
     if (state.order === "chat" && state.atBottom) scrollToBottom();
     if (sentinelNear()) loadMore();
   }
@@ -966,13 +1018,9 @@ function volSeg(sel, cur, apply) {
     if (!d) return;
     const top = d.fromBoard || d;
     volRemoveFromGroup(volGroup(), top.code);
-    vol.panels.watch.state = null;
-    $("#volDetailTitle").innerHTML = "";
-    $("#volDetailBody").innerHTML = '<div class="vempty">已移出。点左边的股票看分时曲线，点板块看成分股</div>';
-    $("#volDetailRemove").classList.add("hidden");
-    $("#volDetailBack").classList.add("hidden");
-    volRenderGroups();
+    volCloseDetail();
   };
+  $("#volDetailClose").onclick = volCloseDetail;
   $("#volIndices").addEventListener("click", (e) => { const c = e.target.closest(".vic[data-code]"); if (c) volOpenStock(c.dataset.code); });
   $("#volBoards").addEventListener("click", (e) => {
     const star = e.target.closest("[data-star]");
@@ -1009,7 +1057,11 @@ function volSeg(sel, cur, apply) {
       if (r && d.type === "board") volOpenStock(r.dataset.code, r.dataset.name, d, key);
     });
   }
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && vol.active && vol.panels.drawer.state) volCloseDrawer(); });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !vol.active || (e.target.closest && e.target.closest("input"))) return;
+    if (vol.panels.drawer.state) volCloseDrawer();
+    else if (vol.page === "watch" && vol.panels.watch.state) volCloseDetail();
+  });
   document.addEventListener("visibilitychange", () => { if (!document.hidden && vol.active) { volFastTick(); volSlowTick(); } });
   $("#themeSel").addEventListener("change", () => { if (vol.active) { volRender(); volRenderBoards(); } });
   volSetPage(new URLSearchParams(location.search).get("vpage") || vol.page);

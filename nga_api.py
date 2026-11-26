@@ -35,10 +35,20 @@ COOKIE_FILE = os.path.join(DATA_DIR, "cookie.txt")
 MAX_CONCURRENCY = 8
 LOCATE_FANOUT = 8
 LAST_PAGE_TTL = 8
+USER_HOME_TTL = 300
+USER_QUERY_GAP = 5
+USER_QUERY_COOLDOWN = 60
+USER_QUERY_COOLDOWN_MAX = 600
 
 
 class NgaError(Exception):
     pass
+
+
+class NgaRateLimited(NgaError):
+    def __init__(self, seconds):
+        self.retry = max(1, int(seconds + 0.999))
+        super().__init__(f"NGA 限制了按用户查询的频率，{self.retry} 秒后自动重试")
 
 
 def _load_json(path, default):
@@ -103,6 +113,10 @@ class NgaClient:
         self._names_lock = threading.Lock()
         self._rep_ids = {}
         self._smiles = None
+        self._uq_lock = threading.Lock()
+        self._uq_at = 0.0
+        self._uq_block = 0.0
+        self._uq_fails = 0
 
     # ---------- 登录 ----------
     @staticmethod
@@ -275,6 +289,129 @@ class NgaClient:
         self._flush_names()
         return {"fid": str(fid), "forum": (d.get("__F") or {}).get("name", ""), "page": int(page),
                 "pages": max(1, math.ceil((d.get("__ROWS") or len(topics)) / per)), "topics": topics}
+
+    def user_home(self, uid, kind="topics", page=1):
+        """个人主页：topics=他发的主题，replies=他的回复，都是 NGA 按时间倒序给的。"""
+        uid = str(uid)
+        if not uid.isdigit():
+            raise NgaError("UID 不正确")
+        page = max(1, int(page))
+        url = f"{HOST}/thread.php?authorid={uid}&page={page}&__output=11"
+        if kind == "replies":
+            url += "&searchpost=1"
+        key = ("uh", uid, kind, page)
+        with self._cache_lock:
+            hit = self._cache.get(key)
+        if hit and time.time() - hit[0] < USER_HOME_TTL:
+            return hit[1]
+        out = {"uid": uid, "kind": kind, "page": page, "items": [], "more": False, "hidden": 0}
+        if page == 1:
+            out["user"] = self.user_info(uid)
+        # NGA 对按用户查询限流很紧（实测连续 3 次就 503，之后约 2 分钟才解封，期间再请求会继续封），
+        # 所以请求之间留间隔，被封后冷却期内不再碰 NGA
+        with self._uq_lock:
+            wait = self._uq_block - time.time()
+            if wait > 0:
+                raise NgaRateLimited(wait)
+            gap = self._uq_at + USER_QUERY_GAP - time.time()
+            if gap > 0:
+                time.sleep(gap)
+            self._uq_at = time.time()
+            try:
+                d = self._fetch_json(url)
+            except NgaError as e:
+                # 翻过最后一页时 NGA 报「没有符合条件的结果」
+                if "没有符合条件" in str(e):
+                    return out
+                if "503" in str(e):
+                    # 封禁期内重复请求会让 NGA 封得更久，冷却时间逐次翻倍
+                    cool = min(USER_QUERY_COOLDOWN_MAX, USER_QUERY_COOLDOWN * 2 ** self._uq_fails)
+                    self._uq_fails += 1
+                    self._uq_block = time.time() + cool
+                    raise NgaRateLimited(cool) from e
+                raise
+            self._uq_fails = 0
+        rows = d.get("__T") or []
+        rows = list(rows.values()) if isinstance(rows, dict) else rows
+        for t in rows:
+            if not isinstance(t, dict) or not t.get("tid"):
+                continue
+            forum = str((t.get("parent") or {}).get("2") or "")
+            if kind != "replies":
+                # 没权限看的老帖只给占位标题「帖子发布或回复时间超过限制」，时间为 0
+                if not t.get("postdate"):
+                    out["hidden"] += 1
+                    continue
+                if t.get("authorid") and t.get("author"):
+                    self._learn_name(t["authorid"], t["author"])
+                out["items"].append({
+                    "tid": str(t["tid"]), "subject": html.unescape(str(t.get("subject") or "")), "forum": forum,
+                    "postdate": t.get("postdate") or 0, "lastpost": t.get("lastpost") or 0,
+                    "lastposter": t.get("lastposter") or "", "replies": t.get("replies") or 0,
+                })
+                continue
+            p = t.get("__P") or {}
+            ts = p.get("postdate")
+            # 没权限看的版面会返回占位条目（denied），时间为空
+            if p.get("denied") or not isinstance(ts, int):
+                out["hidden"] += 1
+                continue
+            out["items"].append({
+                "tid": str(t["tid"]), "pid": str(p.get("pid") or 0), "ts": ts, "forum": forum,
+                "subject": html.unescape(str(t.get("subject") or "")), "author": t.get("author") or "",
+                "content": str(p.get("content") or ""),
+            })
+        if kind == "replies":
+            out["more"] = bool(rows)
+        else:
+            per = int(d.get("__T__ROWS_PAGE") or 35)
+            out["more"] = page * per < int(d.get("__ROWS") or 0)
+        self._flush_names()
+        with self._cache_lock:
+            self._cache[key] = (time.time(), out)
+        return out
+
+    def pid_page(self, pid):
+        """回复所在的帖子和页码：NGA 的 read.php?pid=&to=1 会 302 到 read.php?tid=..&page=.."""
+        pid = str(pid)
+        if not pid.isdigit():
+            raise NgaError("pid 不正确")
+        with self._net_slots:
+            try:
+                r = self.s.get(f"{HOST}/read.php?pid={pid}&to=1", timeout=15, allow_redirects=False)
+            except requests.RequestException as e:
+                raise NgaError(f"网络错误：{e}") from e
+        m = re.search(r"tid=(\d+).*?page=(\d+)", r.headers.get("Location") or "")
+        if not m:
+            raise NgaError("没找到这条回复所在的页（可能已被删除）")
+        return {"tid": m.group(1), "page": int(m.group(2))}
+
+    def user_info(self, uid):
+        uid = str(uid)
+        with self._cache_lock:
+            hit = self._cache.get(("user", uid))
+        if hit:
+            return hit
+        info = {"uid": uid, "name": self.names.get(uid, "")}
+        try:
+            d = self._fetch_json(f"{HOST}/nuke.php?__lib=ucp&__act=get&uid={uid}&__output=11")
+            row = (d if isinstance(d, list) else [d])[0] or {}
+        except NgaError:
+            row = {}
+        name = row.get("username") or ""
+        if name and not re.fullmatch(r"UID:?\d+", name):
+            self._learn_name(uid, name)
+            info["name"] = name
+        avatar = row.get("avatar")
+        info.update({
+            "regdate": row.get("regdate") or 0, "ipLoc": row.get("ipLoc") or "", "group": row.get("group") or "",
+            "fans": row.get("follow_by_num") or 0, "sign": row.get("sign") or "",
+            "avatar": avatar if isinstance(avatar, str) and avatar.startswith("http") else None,
+        })
+        if row:
+            with self._cache_lock:
+                self._cache[("user", uid)] = info
+        return info
 
     def find_user(self, name):
         """按昵称找 UID：先查本地昵称表（完全匹配，再忽略大小写），找不到再问 NGA。"""

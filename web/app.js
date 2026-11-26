@@ -25,6 +25,7 @@ const state = {
   count: 0,
   pendingNew: 0,
   autoTimer: null,
+  view: "thread",
 };
 
 // ---------- 工具 ----------
@@ -38,7 +39,7 @@ async function api(path, params) {
     throw new Error("本地服务未运行（可能已被关闭），请双击 启动.bat 后点「重试」");
   }
   const d = await r.json();
-  if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+  if (!r.ok || d.error) throw Object.assign(new Error(d.error || `HTTP ${r.status}`), { retry: d.retry });
   return d;
 }
 const fmtTime = (ts) => { const d = new Date(ts * 1000); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
@@ -95,7 +96,7 @@ function postHtml(p, isNew) {
   <div class="post${isNew ? " new" : ""}${isOp ? " op" : ""}" id="l${p.lou}" data-lou="${p.lou}" data-pid="${esc(p.pid)}">
     <div class="poster" title="${esc(tip)}">
       <div class="utop">
-        <span class="uname" data-uid="${esc(p.authorid)}" title="点击只看此人">${esc(name)}</span>
+        <span class="uname" data-uid="${esc(p.authorid)}" title="点击只看此人在本帖的发言，右键进入个人主页">${esc(name)}</span>
         ${isOp ? '<span class="tag op">楼主</span>' : ""}
         ${u && u.muted ? '<span class="tag muted">禁言</span>' : ""}
       </div>
@@ -159,7 +160,7 @@ function applyMeta(d) {
   Object.assign(state.users, d.users);
   document.title = d.title ? `${d.title} - NGA 阅读器` : "NGA 阅读器";
   if (d.title && !recentThreads().some((t) => t.tid === state.tid && t.title === d.title)) rememberThread(state.tid, d.title);
-  $("#topicTitle").textContent = d.title || "-";
+  $("#tidSelect").title = d.title ? `${d.title}（点击切换帖子）` : "切换帖子";
   $("#topicAuthor").textContent = d.author || d.authorid;
   $("#topicForum").textContent = d.forum || "-";
   $("#topicLast").textContent = d.lastpost ? fmtTime(d.lastpost) : "-";
@@ -335,7 +336,7 @@ async function refresh() {
     let shown = 0;
     if (state.order === "chat" && (!state.to || state.to >= nowTs())) {
       // 在看帖子列表时帖子在后台刷新，不能动列表的滚动位置
-      const inList = state.view === "list";
+      const inList = state.view !== "thread";
       const stick = !inList && isAtBottom();
       shown = renderPosts(collected, "bottom", true);
       if (stick) scrollToBottom();
@@ -346,7 +347,7 @@ async function refresh() {
       const h0 = main.scrollHeight;
       shown = renderPosts([...collected].reverse(), "top", true);
       if (keep) main.scrollTop += main.scrollHeight - h0;
-      if (keep && shown && state.view !== "list") showBanner(shown, "top");
+      if (keep && shown && state.view === "thread") showBanner(shown, "top");
     } else if (state.order === "asc" && state.done && !state.to) {
       shown = renderPosts(collected, "bottom", true);
     } else if (collected.length) {
@@ -418,7 +419,7 @@ function currentRangeKey() {
 }
 
 function jumpTo(t) {
-  if (state.view === "list") showThreadView();
+  showThreadView();
   const inDom = (t.pid || !state.authorid) && findPost(t);
   if (inDom) {
     setJumpBack(viewSpot());
@@ -441,6 +442,7 @@ function jumpBack() {
   const b = (state.jumpStack || []).pop();
   $("#jumpBackBtn").classList.toggle("hidden", !state.jumpStack || !state.jumpStack.length);
   if (!b) return;
+  if (b.user) { setJumpBack(null); return openUserHome(b.user, b.kind); }
   if (!b.view) {
     const m = $("#main");
     const el = b.pid && document.querySelector(`#feed .post[data-pid="${b.pid}"]`);
@@ -496,14 +498,14 @@ function renderThreadSelect() {
   $("#tidSelect").value = state.tid;
 }
 
-function openThread(tid) {
+function openThread(tid, keepBack = false) {
   showThreadView();
   state.tid = tid;
   localStorage.setItem("tid", tid);
   state.authorid = null;
   setMode();
   renderThreadSelect();
-  startView();
+  startView({ jump: keepBack });
 }
 
 // ---------- 版面帖子列表 ----------
@@ -586,19 +588,26 @@ async function refreshList(manual) {
   }
 }
 
-function setView(list) {
-  state.view = list ? "list" : "thread";
-  $("#listView").classList.toggle("hidden", !list);
-  ["#feed", "#topSentinel", "#sentinel"].forEach((s) => $(s).classList.toggle("hidden", list));
-  if (list) { $("#newBanner").classList.add("hidden"); $("#posInfo").classList.add("hidden"); }
-  $("#backBtn").textContent = list ? "‹ 回到正在看的帖子" : "‹ 返回帖子列表";
+// view：thread=帖子，list=版面帖子列表，user=个人主页；离开时记住各自的滚动位置
+function setView(view) {
+  const prev = state.view;
+  const top = $("#main").scrollTop;
+  if (prev === "thread") state.threadScroll = top;
+  else if (prev === "list") lst.scroll = top;
+  else if (prev === "user") uh.scroll = top;
+  state.view = view;
+  const thread = view === "thread";
+  $("#listView").classList.toggle("hidden", view !== "list");
+  $("#userView").classList.toggle("hidden", view !== "user");
+  ["#feed", "#topSentinel", "#sentinel"].forEach((s) => $(s).classList.toggle("hidden", !thread));
+  if (!thread) { $("#newBanner").classList.add("hidden"); $("#posInfo").classList.add("hidden"); }
+  $("#backBtn").textContent = thread ? "‹ 返回帖子列表" : "‹ 回到正在看的帖子";
 }
 
 async function showListView() {
   const fid = state.fid || lst.fid;
   if (fid !== lst.fid) Object.assign(lst, { fid, forum: "", topics: new Map(), page: 0, pages: 1, loaded: false, scroll: 0 });
-  state.threadScroll = $("#main").scrollTop;
-  setView(true);
+  setView("list");
   if (!lst.loaded) {
     lst.loaded = true;
     $("#main").scrollTop = 0;
@@ -612,14 +621,13 @@ async function showListView() {
 }
 
 function showThreadView() {
-  if (state.view !== "list") return;
-  lst.scroll = $("#main").scrollTop;
-  setView(false);
+  if (state.view === "thread") return;
+  setView("thread");
 }
 
 function bindList() {
   $("#backBtn").onclick = () => {
-    if (state.view !== "list") return showListView();
+    if (state.view === "thread") return showListView();
     showThreadView();
     $("#main").scrollTop = state.threadScroll || 0;
   };
@@ -640,6 +648,228 @@ function bindList() {
     if (m.scrollHeight - m.scrollTop - m.clientHeight < 600) loadListPage();
   });
   setInterval(() => { if (state.view === "list" && !document.hidden) refreshList(false); }, LIST_REFRESH_SEC * 1000);
+}
+
+// ---------- 个人主页：他发的帖 / 他的回复 ----------
+const uh = { uid: null, name: "", kind: "topics", items: [], page: 0, hidden: 0, more: true, loading: false, error: "",
+  info: null, scroll: 0, gen: 0, saved: {}, from: "thread" };
+const UH_LIST_KEYS = ["items", "page", "hidden", "more", "scroll"];
+
+// 发帖 / 回复各自保留已加载的列表，来回切换不重新请求（NGA 对这类查询限流很紧）
+function openUserHome(u, kind = "topics") {
+  if (state.view !== "user") uh.from = state.view;
+  else if (uh.uid === u.uid && uh.kind !== kind && !uh.error && uh.items.length)
+    uh.saved[uh.kind] = Object.fromEntries(UH_LIST_KEYS.map((k) => [k, k === "scroll" ? $("#main").scrollTop : uh[k]]));
+  setView("user");
+  if (uh.uid === u.uid && uh.kind === kind && uh.items.length && !uh.error) {
+    renderUserHome();
+    $("#main").scrollTop = uh.scroll;
+    return;
+  }
+  if (uh.uid !== u.uid) Object.assign(uh, { info: null, saved: {} });
+  const saved = uh.saved[kind];
+  Object.assign(uh, { uid: u.uid, name: u.name || (uh.uid === u.uid ? uh.name : ""), kind, items: [], page: 0,
+    hidden: 0, more: true, loading: false, error: "", scroll: 0, gen: uh.gen + 1 }, saved || {});
+  renderUserHome();
+  $("#main").scrollTop = uh.scroll;
+  if (saved) uhFillIfShort(); else loadUserHome();
+}
+
+// 没权限的条目会被过滤掉，一页可能显示不了几条，内容不满一屏就接着翻
+function uhFillIfShort() {
+  const m = $("#main");
+  if (state.view === "user" && uh.more && m.scrollHeight - m.scrollTop - m.clientHeight < 600) loadUserHome();
+}
+
+function retryUserHome() {
+  clearInterval(uh.retryTimer);
+  uh.retryAt = 0;
+  uh.error = "";
+  uh.more = true;
+  loadUserHome();
+}
+
+function leaveUserHomeBack() {
+  if (uh.from === "list") return showListView();
+  showThreadView();
+  $("#main").scrollTop = state.threadScroll || 0;
+}
+
+async function loadUserHome() {
+  if (uh.loading || !uh.more) return;
+  uh.loading = true;
+  const gen = uh.gen;
+  renderUserHome();
+  try {
+    const d = await api("userhome", { uid: uh.uid, kind: uh.kind, page: uh.page + 1 });
+    if (gen !== uh.gen) return;
+    if (d.user) uh.info = d.user;
+    uh.page = d.page;
+    uh.more = d.more;
+    uh.items.push(...d.items);
+    uh.hidden += d.hidden || 0;
+  } catch (e) {
+    if (gen !== uh.gen) return;
+    uh.error = e.message;
+    uh.more = false;
+    if (e.retry) uhScheduleRetry(e.retry, gen);
+  }
+  uh.loading = false;
+  renderUserHome();
+  uhFillIfShort();
+}
+
+// 被 NGA 限流时倒计时，到点自动重试（离开主页就不再自动请求）
+function uhScheduleRetry(sec, gen) {
+  clearInterval(uh.retryTimer);
+  uh.retryAt = Date.now() + sec * 1000;
+  uh.retryTimer = setInterval(() => {
+    if (gen !== uh.gen || state.view !== "user") return clearInterval(uh.retryTimer);
+    if (Date.now() < uh.retryAt) return renderUhMore();
+    clearInterval(uh.retryTimer);
+    retryUserHome();
+  }, 1000);
+}
+
+function userTopicRow(t) {
+  const pages = Math.ceil((t.replies + 1) / 20);
+  return `<div class="trow" data-tid="${esc(t.tid)}">
+    <div class="t-replies">${t.replies}</div>
+    <div class="t-main">
+      <div class="t-subject">${t.forum ? `<span class="t-forum">${esc(t.forum)}</span>` : ""}${esc(t.subject)}${pages > 1 ? `<span class="t-pages">[${pages} 页]</span>` : ""}</div>
+      <div class="t-author">发表于 ${fmtTime(t.postdate)}</div>
+    </div>
+    <div class="t-last"><b>${esc(t.lastposter)}</b>${t.lastpost ? agoText(t.lastpost) : ""}</div>
+  </div>`;
+}
+
+function userReplyRow(r) {
+  return `<div class="urow" data-tid="${esc(r.tid)}" data-pid="${esc(r.pid)}" data-ts="${r.ts}" title="点击跳到这条回复所在的楼层">
+    <div class="u-head">${r.forum ? `<span class="t-forum">${esc(r.forum)}</span>` : ""}<b>${esc(r.subject)}</b><span class="u-time">${fmtTime(r.ts)}</span></div>
+    <div class="content">${renderContent(r.content)}</div>
+  </div>`;
+}
+
+function renderUserHome() {
+  const i = uh.info || {};
+  const name = i.name || uh.name || `UID:${uh.uid}`;
+  $("#uhName").textContent = `${name} 的主页`;
+  const meta = [`UID ${uh.uid}`];
+  if (i.regdate) meta.push(`注册于 ${fmtTime(i.regdate).slice(0, 10)}`);
+  if (i.ipLoc) meta.push(`属地 ${i.ipLoc}`);
+  if (i.group) meta.push(i.group);
+  if (i.fans) meta.push(`${i.fans} 人关注`);
+  $("#uhMeta").textContent = meta.join(" · ");
+  $("#uhAvatar").classList.toggle("hidden", !i.avatar);
+  if (i.avatar) $("#uhAvatar").src = i.avatar;
+  $("#uhNga").href = `https://bbs.nga.cn/nuke.php?func=ucp&uid=${encodeURIComponent(uh.uid)}`;
+  $$("[data-uhkind]").forEach((b) => b.classList.toggle("active", b.dataset.uhkind === uh.kind));
+  $("#uhTip").textContent = uh.kind === "topics" ? "他作为楼主发的帖子，按发帖时间从新到旧，点击打开"
+    : "他在各帖里的回复，按回复时间从新到旧，点击跳到那一楼";
+  const row = uh.kind === "topics" ? userTopicRow : userReplyRow;
+  $("#uhFeed").innerHTML = uh.items.map(row).join("");
+  $("#uhBack").textContent = uh.from === "list" ? "‹ 返回帖子列表" : "‹ 返回帖子";
+  renderUhMore();
+  scheduleNameFill();
+}
+
+function renderUhMore() {
+  const none = uh.kind === "topics" ? "没有发过帖子" : "没有可查看的回复";
+  const hidden = uh.hidden ? ` · 另有 ${uh.hidden} 条 NGA 不开放查看（太久远或版面无权限），已隐藏` : "";
+  const left = Math.ceil(((uh.retryAt || 0) - Date.now()) / 1000);
+  const retry = '<a href="#" onclick="retryUserHome();return false">立即重试</a>';
+  $("#uhMore").innerHTML = uh.error && left > 0
+    ? `<span class="err">NGA 限制了你账号按用户查询的频率（防刷），${left >= 60 ? `${Math.floor(left / 60)} 分 ${left % 60} 秒` : `${left} 秒`}后自动重试</span>　${retry}`
+    : uh.error ? `<span class="err">读取失败：${esc(uh.error)}</span>　${retry}`
+    : uh.loading ? '<span class="spinner"></span>加载中…'
+    : uh.more ? `继续下滑加载更多${hidden}` : (uh.items.length ? `没有更多了 · 共 ${uh.items.length} 条` : none) + hidden;
+}
+
+// 从主页打开帖子后，「↩ 返回」回到主页原来的位置
+function leaveUserHome() {
+  setJumpBack(null);
+  setJumpBack({ user: { uid: uh.uid, name: uh.name || (uh.info && uh.info.name) }, kind: uh.kind });
+}
+
+async function openPostAt(tid, pid, ts) {
+  setView("thread");
+  state.gen++;
+  state.tid = tid;
+  localStorage.setItem("tid", tid);
+  state.authorid = null;
+  setMode();
+  renderThreadSelect();
+  setRange(null, null);
+  $$("[data-range]").forEach((x) => x.classList.remove("active"));
+  state.order = "asc";
+  $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === "asc"));
+  // 定位页码期间楼层区是空的，不锁住的话「滚到边自动加载」会按旧视图的页码去拉
+  state.loading = true;
+  $("#feed").innerHTML = "";
+  updateFooter('<span class="spinner"></span>正在定位这条回复所在的页…');
+  let page = 1;
+  try {
+    page = pid && pid !== "0" ? (await api("pidpage", { pid })).page : 1;
+  } catch (e) {
+    try { page = (await api("locate", { tid, ts })).page; } catch (e2) { /* 定位失败就从第一页看 */ }
+  }
+  startView({ page, scrollTo: pid && pid !== "0" ? { pid } : { lou: 0 }, jump: true });
+}
+
+function bindUserHome() {
+  $$("[data-uhkind]").forEach((b) => b.onclick = () => openUserHome({ uid: uh.uid, name: uh.name }, b.dataset.uhkind));
+  $("#uhBack").onclick = leaveUserHomeBack;
+  $("#uhFeed").addEventListener("click", (e) => {
+    const at = e.target.closest(".at[data-uid]");
+    if (at) return openUserHome({ uid: at.dataset.uid, name: at.textContent.replace(/^@/, "").trim() });
+    if (e.target.closest("a, .pimg, summary")) return;
+    const row = e.target.closest("[data-tid]");
+    if (!row) return;
+    leaveUserHome();
+    if (row.dataset.ts) openPostAt(row.dataset.tid, row.dataset.pid, +row.dataset.ts);
+    else openThread(row.dataset.tid, true);
+  });
+  $("#uhFeed").addEventListener("click", (e) => {
+    const img = e.target.closest(".pimg");
+    if (!img) return;
+    $("#lightbox").querySelector("img").src = img.currentSrc || img.src;
+    $("#lightbox").classList.remove("hidden");
+  });
+  $("#main").addEventListener("scroll", () => {
+    if (state.view !== "user") return;
+    const m = $("#main");
+    if (m.scrollHeight - m.scrollTop - m.clientHeight < 600) loadUserHome();
+  });
+
+  // 右键用户名：进入主页 / 只看他在本帖的发言
+  const menu = $("#ctxMenu");
+  const hide = () => menu.classList.add("hidden");
+  document.addEventListener("contextmenu", (e) => {
+    const el = e.target.closest && e.target.closest("#feed .uname[data-uid], #feed .at[data-uid], #uhFeed .at[data-uid]");
+    if (!el) return hide();
+    e.preventDefault();
+    const u = { uid: el.dataset.uid, name: el.textContent.replace(/^@/, "").trim() };
+    const inThread = !!el.closest("#feed");
+    menu.innerHTML = `<div class="ctx-title">${esc(u.name)}</div>
+      <a data-act="home">进入个人主页</a>
+      ${inThread ? '<a data-act="only">只看他在本帖的发言</a>' : ""}
+      <a data-act="nga">在 NGA 打开他的主页</a>`;
+    menu.onclick = (ev) => {
+      const act = ev.target.dataset.act;
+      if (!act) return;
+      hide();
+      if (act === "home") openUserHome(u);
+      else if (act === "only") viewUser(u);
+      else window.open(`https://bbs.nga.cn/nuke.php?func=ucp&uid=${encodeURIComponent(u.uid)}`, "_blank");
+    };
+    menu.classList.remove("hidden");
+    const w = menu.offsetWidth, h = menu.offsetHeight;
+    menu.style.left = `${Math.min(e.clientX, innerWidth - w - 4)}px`;
+    menu.style.top = `${Math.min(e.clientY, innerHeight - h - 4)}px`;
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#ctxMenu")) hide(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") hide(); });
+  $("#main").addEventListener("scroll", hide, { passive: true });
 }
 
 function bind() {
@@ -748,7 +978,7 @@ function bind() {
   // 「底部」= 回到最新。最新在下且不限结束时间时最新楼层就在底部；从头看、跳转浏览或限定了结束时间时，
   // 已加载的内容到不了今天，改回最新在下重新加载（保留只看楼主 / 指定用户）
   const toBottom = () => {
-    if (state.view === "list" || (state.order === "chat" && !state.to)) return scrollToBottom();
+    if (state.view !== "thread" || (state.order === "chat" && !state.to)) return scrollToBottom();
     state.order = "chat";
     $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === "chat"));
     setRange(null, null);
@@ -766,7 +996,7 @@ function bind() {
   });
   // 图片/表情加载会撑高内容，停在底部时继续贴底
   document.addEventListener("load", (e) => {
-    if (!(e.target instanceof HTMLImageElement) || state.view === "list") return;
+    if (!(e.target instanceof HTMLImageElement) || state.view !== "thread") return;
     const a = state.anchor;
     if (a && Date.now() < a.until && a.el.isConnected) return a.el.scrollIntoView({ block: "start" });
     if (state.order === "chat" && state.atBottom) scrollToBottom();
@@ -908,6 +1138,7 @@ function setMode() {
   $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === state.order));
   bind();
   bindList();
+  bindUserHome();
   bindAccount();
   refreshAccount().then((s) => { if (s && s.login.state === "waiting") pollLogin(); });
   try { state.smiles = window.SMILES = await api("smiles", {}); } catch (e) { console.warn("表情表加载失败", e); }

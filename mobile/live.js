@@ -264,13 +264,16 @@ async function showList(fid) {
   }
 }
 
+// view：thread=帖子，list=版面帖子列表，user=个人主页
 function showView(v) {
+  if (st.view === "user") uh.scrollY = window.scrollY;
   st.view = v;
-  const list = v === "list";
-  ["#listTop", "#listFeed", "#listMore"].forEach((s) => $(s).classList.toggle("hidden", !list));
-  ["#top", "#feed", "#topMore", "#more", "#newTip"].forEach((s) => $(s).classList.toggle("hidden", list || (s === "#newTip")));
-  $("#jumpBtn").classList.toggle("hidden", list);
-  $("#jumpBack").classList.toggle("hidden", list || !st.backs.length);
+  const thread = v === "thread";
+  ["#listTop", "#listFeed", "#listMore"].forEach((s) => $(s).classList.toggle("hidden", v !== "list"));
+  ["#userTop", "#uhFeed", "#uhMore"].forEach((s) => $(s).classList.toggle("hidden", v !== "user"));
+  ["#top", "#feed", "#topMore", "#more", "#newTip"].forEach((s) => $(s).classList.toggle("hidden", !thread || (s === "#newTip")));
+  $("#jumpBtn").classList.toggle("hidden", !thread);
+  $("#jumpBack").classList.toggle("hidden", !thread || !st.backs.length);
 }
 
 async function fetchPageHtml(tid, page, authorid) {
@@ -486,7 +489,7 @@ const postByPid = (pid) => document.querySelector(`#feed .post[data-pid="${pid}"
 function setBack(b) {
   if (!b) st.backs = [];
   else if (!(b.view && st.backs.some((x) => x.view))) st.backs.push(b);
-  $("#jumpBack").classList.toggle("hidden", !st.backs.length);
+  $("#jumpBack").classList.toggle("hidden", !st.backs.length || st.view !== "thread");
 }
 // 记住屏幕最上面那条楼层和它的位置，上方插入内容后也能回到原处
 function viewSpot() {
@@ -558,17 +561,20 @@ function goBack() {
   const b = st.backs.pop();
   $("#jumpBack").classList.toggle("hidden", !st.backs.length);
   if (!b) return;
+  if (b.home) { setBack(null); return openUserHome(b.home, b.kind); }
   if (!b.view) {
     const el = b.pid && postByPid(b.pid);
     return window.scrollTo(0, el ? el.getBoundingClientRect().top + window.scrollY - b.off : b.y || 0);
   }
-  setBack(null);
+  // 从主页进来的帖子：退回整页视图后仍保留「回到主页」那一项
+  const home = st.backs.find((x) => x.home);
   if (b.mode === "user") setMode("user", b.user); else setMode(b.mode);
   start();
+  if (home) setBack(home);
 }
 
 function refreshCurrent() {
-  if (st.view === "list") refreshList(false); else refresh(false);
+  if (st.view === "list") refreshList(false); else if (st.view === "thread") refresh(false);
 }
 
 function setAuto() {
@@ -605,6 +611,7 @@ function setMode(mode, user) {
   st.authorid = mode === "op" ? (st.topic && st.topic.authorid) : mode === "user" ? user.uid : null;
   $$("[data-mode]").forEach((x) => x.classList.toggle("on", x.dataset.mode === mode));
   $("[data-mode=user]").textContent = mode === "user" ? user.name : "指定用户";
+  $("#homeBtn").classList.toggle("hidden", mode === "all");
 }
 
 function resolveUser(name) {
@@ -624,6 +631,341 @@ function toast(msg, ms = 3500) {
   t.classList.remove("hidden");
   clearTimeout(toast._t);
   toast._t = setTimeout(() => t.classList.add("hidden"), ms);
+}
+
+// ---------- 个人主页：他发的帖 / 他的回复 ----------
+// NGA 对按用户查询限流很紧（按账号算，实测连续 3 次就 503，之后至少 2 分钟才解封，期间再请求会封得更久），
+// 所以请求之间留间隔、结果缓存，被封后冷却期内不再请求
+const UQ_GAP = 5000, UQ_COOLDOWN = 60, UQ_COOLDOWN_MAX = 600, UH_TTL = 300000;
+const uq = { at: 0, block: 0, fails: 0, chain: Promise.resolve(), cache: new Map(), info: new Map() };
+const uh = { uid: null, name: "", kind: "topics", items: [], page: 0, hidden: 0, more: true, loading: false, error: "",
+  retryAt: 0, retryTimer: null, scrollY: 0, gen: 0, saved: {}, from: "thread" };
+
+const rateLimited = (sec) => Object.assign(new Error("NGA 限制了按用户查询的频率，稍后再试"), { retry: Math.max(1, Math.ceil(sec)) });
+
+async function fetchUserInfo(uid) {
+  if (uq.info.has(uid)) return uq.info.get(uid);
+  try {
+    const r = await ngaFetch(`/nuke.php?__lib=ucp&__act=get&uid=${uid}&__output=11`);
+    const d = parseNgaJson(await r.text());
+    const data = d && (d.data || d);
+    const row = (Array.isArray(data) ? data[0] : data && data[0]) || {};
+    if (row.username && !/^UID:?\d+$/.test(row.username)) { learnName(uid, row.username); saveNames(); }
+    const info = { regdate: row.regdate || 0, ipLoc: row.ipLoc || "", group: row.group || "", fans: row.follow_by_num || 0 };
+    uq.info.set(uid, info);
+    return info;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchUserHome(uid, kind, page) {
+  const key = `${uid}|${kind}|${page}`;
+  const hit = uq.cache.get(key);
+  if (hit && Date.now() - hit.at < UH_TTL) return hit.data;
+  const run = async () => {
+    const wait = uq.block - Date.now();
+    if (wait > 0) throw rateLimited(wait / 1000);
+    const gap = uq.at + UQ_GAP - Date.now();
+    if (gap > 0) await sleep(gap);
+    uq.at = Date.now();
+    const out = { items: [], more: false, hidden: 0 };
+    let d;
+    try {
+      const r = await ngaFetch(`/thread.php?authorid=${uid}${kind === "replies" ? "&searchpost=1" : ""}&page=${page}&__output=11`);
+      d = parseNgaJson(await r.text());
+      if (!d) throw new Error("NGA 返回内容无法解析");
+      if (d.error) throw new Error(String(Array.isArray(d.error) ? d.error[0] : d.error[0]).replace(/^\d+:/, ""));
+    } catch (e) {
+      // 翻过最后一页时 NGA 报「没有符合条件的结果」
+      if (/没有符合条件/.test(e.message)) return out;
+      if (/HTTP 503/.test(e.message)) {
+        const cool = Math.min(UQ_COOLDOWN_MAX, UQ_COOLDOWN * 2 ** uq.fails);
+        uq.fails++;
+        uq.block = Date.now() + cool * 1000;
+        throw rateLimited(cool);
+      }
+      if (/登录/.test(e.message)) throw new Error("需要先登录 NGA 才能看个人主页（右上角 ⋯ → 登录 NGA）");
+      throw e;
+    }
+    uq.fails = 0;
+    const data = d.data || d;
+    let rows = data.__T || [];
+    rows = Array.isArray(rows) ? rows : Object.values(rows);
+    for (const t of rows) {
+      if (!t || !t.tid) continue;
+      const forum = String((t.parent && t.parent["2"]) || "");
+      if (kind !== "replies") {
+        // 没权限看的老帖只给占位标题「帖子发布或回复时间超过限制」，时间为 0
+        if (!t.postdate) { out.hidden++; continue; }
+        if (t.authorid && t.author) learnName(t.authorid, t.author);
+        out.items.push({ tid: String(t.tid), subject: decodeEntities(t.subject), forum, postdate: t.postdate,
+          lastpost: t.lastpost || 0, lastposter: t.lastposter || "", replies: t.replies || 0 });
+        continue;
+      }
+      const p = t.__P || {};
+      if (p.denied || typeof p.postdate !== "number") { out.hidden++; continue; }
+      out.items.push({ tid: String(t.tid), pid: String(p.pid || 0), ts: p.postdate, forum,
+        subject: decodeEntities(t.subject), content: String(p.content || "") });
+    }
+    out.more = kind === "replies" ? rows.length > 0 : page * Number(data.__T__ROWS_PAGE || 35) < Number(data.__ROWS || 0);
+    saveNames();
+    uq.cache.set(key, { at: Date.now(), data: out });
+    return out;
+  };
+  // 串行执行，切换标签时不会同时打出多个请求
+  const p = uq.chain.then(run, run);
+  uq.chain = p.catch(() => {});
+  return p;
+}
+
+// 发帖 / 回复各自保留已加载的列表，来回切换不重新请求
+const UH_LIST_KEYS = ["items", "page", "hidden", "more", "scrollY"];
+function openUserHome(u, kind = "topics") {
+  if (st.view !== "user") {
+    uh.from = st.view;
+    if (st.view === "thread") st.threadScroll = window.scrollY;
+    else if (st.view === "list") lst.scrollY = window.scrollY;
+  } else if (uh.uid === u.uid && uh.kind !== kind && !uh.error && uh.items.length) {
+    uh.saved[uh.kind] = Object.fromEntries(UH_LIST_KEYS.map((k) => [k, k === "scrollY" ? window.scrollY : uh[k]]));
+  }
+  showView("user");
+  if (uh.uid === u.uid && uh.kind === kind && uh.items.length && !uh.error) {
+    renderUserHome();
+    return window.scrollTo(0, uh.scrollY);
+  }
+  if (uh.uid !== u.uid) uh.saved = {};
+  const saved = uh.saved[kind];
+  clearInterval(uh.retryTimer);
+  Object.assign(uh, { uid: u.uid, name: u.name || (uh.uid === u.uid ? uh.name : ""), kind, items: [], page: 0,
+    hidden: 0, more: true, loading: false, error: "", retryAt: 0, scrollY: 0, gen: uh.gen + 1 }, saved || {});
+  renderUserHome();
+  window.scrollTo(0, uh.scrollY);
+  if (!uq.info.has(u.uid)) fetchUserInfo(u.uid).then(() => st.view === "user" && uh.uid === u.uid && renderUserHome());
+  if (saved) uhFillIfShort(); else loadUserHome();
+}
+
+function leaveUserHome() {
+  if (uh.from === "list") return showList(st.fid || lst.fid);
+  showView("thread");
+  window.scrollTo(0, st.threadScroll || 0);
+}
+
+function uhFillIfShort() {
+  if (st.view === "user" && uh.more && pageBottom() - window.scrollY < PREFETCH_PX) loadUserHome();
+}
+
+async function loadUserHome() {
+  if (uh.loading || !uh.more) return;
+  uh.loading = true;
+  const gen = uh.gen;
+  renderUhMore();
+  try {
+    const d = await fetchUserHome(uh.uid, uh.kind, uh.page + 1);
+    if (gen !== uh.gen) return;
+    uh.page += 1;
+    uh.more = d.more;
+    uh.items.push(...d.items);
+    uh.hidden += d.hidden;
+  } catch (e) {
+    if (gen !== uh.gen) return;
+    uh.error = e.message;
+    uh.more = false;
+    if (e.retry) uhScheduleRetry(e.retry, gen);
+  }
+  uh.loading = false;
+  renderUserHome();
+  uhFillIfShort();
+}
+
+// 被限流时倒计时，到点自动重试（离开主页就不再自动请求）
+function uhScheduleRetry(sec, gen) {
+  clearInterval(uh.retryTimer);
+  uh.retryAt = Date.now() + sec * 1000;
+  uh.retryTimer = setInterval(() => {
+    if (gen !== uh.gen || st.view !== "user") return clearInterval(uh.retryTimer);
+    if (Date.now() < uh.retryAt) return renderUhMore();
+    retryUserHome();
+  }, 1000);
+}
+function retryUserHome() {
+  clearInterval(uh.retryTimer);
+  Object.assign(uh, { retryAt: 0, error: "", more: true });
+  loadUserHome();
+}
+
+function userTopicHtml(t) {
+  const pages = Math.ceil((t.replies + 1) / 20);
+  return `<article class="topic" data-tid="${esc(t.tid)}">
+    <div class="t-title">${t.forum ? `<span class="t-forum">${esc(t.forum)}</span>` : ""}${esc(t.subject)}</div>
+    <div class="t-meta">
+      <span>发表于 ${fmt(t.postdate)}</span>
+      <span class="replies">回复 ${t.replies}${pages > 1 ? `（${pages} 页）` : ""}</span>
+      ${t.lastpost ? `<span>最后：${esc(t.lastposter)} ${ago(t.lastpost)}</span>` : ""}
+    </div>
+  </article>`;
+}
+function userReplyHtml(r) {
+  return `<article class="topic urow" data-tid="${esc(r.tid)}" data-pid="${esc(r.pid)}">
+    <div class="u-head">${r.forum ? `<span class="t-forum">${esc(r.forum)}</span>` : ""}<b>${esc(r.subject)}</b><span>${shortTime(r.ts)}</span></div>
+    <div class="content">${renderContent(r.content)}</div>
+  </article>`;
+}
+
+function renderUserHome() {
+  const i = uq.info.get(uh.uid) || {};
+  const name = names[uh.uid] || uh.name || `UID:${uh.uid}`;
+  $("#uhName").textContent = `${name} 的主页`;
+  const meta = [`UID ${uh.uid}`];
+  if (i.regdate) { const d = new Date(i.regdate * 1000); meta.push(`注册于 ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`); }
+  if (i.ipLoc) meta.push(i.ipLoc);
+  if (i.group) meta.push(i.group);
+  if (i.fans) meta.push(`${i.fans} 人关注`);
+  $("#uhMeta").textContent = meta.join(" · ");
+  $("#uhNga").href = `https://bbs.nga.cn/nuke.php?func=ucp&uid=${encodeURIComponent(uh.uid)}`;
+  $$("[data-uhkind]").forEach((b) => b.classList.toggle("on", b.dataset.uhkind === uh.kind));
+  $("#uhFeed").innerHTML = uh.items.map(uh.kind === "topics" ? userTopicHtml : userReplyHtml).join("");
+  renderUhMore();
+}
+
+function renderUhMore() {
+  const none = uh.kind === "topics" ? "没有发过帖子" : "没有可查看的回复";
+  const hidden = uh.hidden ? `<br>另有 ${uh.hidden} 条 NGA 不开放查看（太久远或版面无权限），已隐藏` : "";
+  const left = Math.ceil((uh.retryAt - Date.now()) / 1000);
+  const retry = '<a href="#" onclick="retryUserHome();return false">立即重试</a>';
+  const leftText = left >= 60 ? `${Math.floor(left / 60)} 分 ${left % 60} 秒` : `${left} 秒`;
+  $("#uhMore").innerHTML = uh.error && left > 0
+    ? `<span class="err">NGA 限制了你账号按用户查询的频率（防刷），${leftText}后自动重试</span><br>${retry}`
+    : uh.error ? `<span class="err">读取失败：${esc(uh.error)}</span><br>${retry}`
+    : uh.loading ? "加载中…"
+    : uh.more ? `继续下滑加载更多${hidden}` : (uh.items.length ? `没有更多了 · 共 ${uh.items.length} 条` : none) + hidden;
+}
+
+const homeBack = () => ({ home: { uid: uh.uid, name: names[uh.uid] || uh.name }, kind: uh.kind });
+
+// 回复所在页：NGA 的 read.php?pid=&to=1 会重定向到 read.php?tid=..&page=..
+async function pidPage(pid) {
+  const r = await fetch(`/read.php?pid=${pid}&to=1`, { credentials: "include", cache: "no-store" });
+  const m = r.url.match(/[?&]page=(\d+)/);
+  try { if (r.body) r.body.cancel(); } catch (e) { /* 忽略 */ }
+  return m ? Number(m[1]) : null;
+}
+
+async function openPostAt(tid, pid) {
+  const back = homeBack();
+  st.tid = tid;
+  localStorage.setItem("live_tid", tid);
+  showView("thread");
+  setMode("all");
+  setTitle();
+  const gen = ++st.gen;
+  Object.assign(st, { posts: new Map(), users: {}, loading: true, done: false, jump: false });
+  setBack(null);
+  renderAll();
+  $("#more").textContent = "正在定位这条回复所在的页…";
+  try {
+    let page = pid === "0" ? 1 : null;
+    if (!page) { try { page = await pidPage(pid); } catch (e) { page = null; } }
+    const d = await fetchPage(tid, page || "e", null);
+    if (gen !== st.gen) return;
+    st.topic = { tid, title: d.title, author: d.author, authorid: d.authorid, rows: d.rows };
+    st.per = d.per;
+    if (d.fid) st.fid = d.fid;
+    rememberThread(tid, d.title);
+    addPosts(d);
+    Object.assign(st, { loPage: d.page, hiPage: d.page, lastPage: d.pages, done: d.page <= 1, jump: d.page < d.pages,
+      refreshedAt: Date.now(), loading: false });
+    renderAll();
+    setBack(back);
+    const el = findPost(pid === "0" ? { lou: 0 } : { pid });
+    if (el) flashPost(el);
+    else { scrollToBottom(); showTip("没找到这条回复（可能已被删除）"); }
+  } catch (e) {
+    if (gen !== st.gen) return;
+    st.loading = false;
+    setBack(back);
+    $("#feed").innerHTML = `<div class="empty err">读取失败：${esc(e.message)}</div>`;
+  }
+}
+
+// 长按用户名：弹出菜单（进入主页 / 只看他在本帖的发言）
+const userOf = (el) => ({ uid: el.dataset.uid, name: el.textContent.replace(/^@/, "").trim() });
+function onlyUser(u) {
+  if (st.topic && u.uid === st.topic.authorid) setMode("op"); else setMode("user", u);
+  start();
+}
+function openUserSheet(u, inThread) {
+  $("#sheetName").textContent = u.name;
+  $("#sheetOnly").classList.toggle("hidden", !inThread);
+  $("#sheetHome").onclick = () => { $("#userSheet").classList.add("hidden"); openUserHome(u); };
+  $("#sheetOnly").onclick = () => { $("#userSheet").classList.add("hidden"); onlyUser(u); };
+  $("#userSheet").classList.remove("hidden");
+}
+function bindLongPress() {
+  const SEL = "#feed .uname[data-uid], #feed .at[data-uid], #uhFeed .at[data-uid]";
+  let timer = null, x0 = 0, y0 = 0, el = null, fired = false;
+  const cancel = () => { clearTimeout(timer); timer = null; if (el) el.classList.remove("pressing"); el = null; };
+  window.addEventListener("touchstart", (e) => {
+    fired = false;
+    cancel();
+    const t = e.target.closest && e.target.closest(SEL);
+    if (!t || e.touches.length !== 1) return;
+    el = t;
+    x0 = e.touches[0].clientX;
+    y0 = e.touches[0].clientY;
+    el.classList.add("pressing");
+    timer = setTimeout(() => {
+      fired = true;
+      const u = userOf(el);
+      const inThread = !!el.closest("#feed");
+      cancel();
+      if (navigator.vibrate) navigator.vibrate(15);
+      openUserSheet(u, inThread);
+    }, 450);
+  }, { passive: true });
+  window.addEventListener("touchmove", (e) => {
+    if (timer && Math.hypot(e.touches[0].clientX - x0, e.touches[0].clientY - y0) > 10) cancel();
+  }, { passive: true });
+  window.addEventListener("touchend", cancel, { passive: true });
+  window.addEventListener("touchcancel", cancel, { passive: true });
+  // 长按松手后浏览器可能补发一次点击，吞掉它，免得同时触发「只看此人」
+  document.addEventListener("click", (e) => {
+    if (!fired) return;
+    fired = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  document.addEventListener("contextmenu", (e) => { if (e.target.closest && e.target.closest(SEL)) e.preventDefault(); });
+}
+
+function bindUserHome() {
+  bindLongPress();
+  $("#sheetCancel").onclick = () => $("#userSheet").classList.add("hidden");
+  $("#userSheet").addEventListener("click", (e) => { if (e.target.id === "userSheet") $("#userSheet").classList.add("hidden"); });
+  $("#uhBack").onclick = leaveUserHome;
+  $("#homeBtn").onclick = () => {
+    if (!st.authorid) return;
+    const name = st.mode === "op" ? (st.topic && st.topic.author) : st.user && st.user.name;
+    openUserHome({ uid: st.authorid, name: name || "" });
+  };
+  $$("[data-uhkind]").forEach((b) => b.onclick = () => openUserHome({ uid: uh.uid, name: uh.name }, b.dataset.uhkind));
+  $("#uhFeed").addEventListener("click", (e) => {
+    const at = e.target.closest(".at[data-uid]");
+    if (at) { e.preventDefault(); return openUserHome(userOf(at)); }
+    const img = e.target.closest(".pimg");
+    if (img) { $("#lightbox img").src = img.src; return $("#lightbox").classList.remove("hidden"); }
+    if (e.target.closest("a, summary")) return;
+    const row = e.target.closest("[data-tid]");
+    if (!row) return;
+    uh.scrollY = window.scrollY;
+    if (row.dataset.pid) return openPostAt(row.dataset.tid, row.dataset.pid);
+    const back = homeBack();
+    openThread(row.dataset.tid);
+    setBack(back);
+  });
+  new IntersectionObserver((ents) => {
+    if (st.view === "user" && ents.some((e) => e.isIntersecting)) loadUserHome();
+  }, { rootMargin: `0px 0px ${PREFETCH_PX}px 0px` }).observe($("#uhMore"));
 }
 
 // ---------- NGA 登录 ----------
@@ -705,11 +1047,12 @@ async function checkAccount() {
 
 // 安卓 App 的返回键：先关面板，再从帖子回到列表；返回 false 时 App 退出
 window.__androidBack = () => {
-  const open = ["#loginPanel", "#jumpPanel", "#userPanel", "#menuPanel", "#lightbox"].find((s) => !$(s).classList.contains("hidden"));
+  const open = ["#loginPanel", "#jumpPanel", "#userPanel", "#userSheet", "#menuPanel", "#lightbox"].find((s) => !$(s).classList.contains("hidden"));
   if (open) {
     if (open === "#loginPanel") closeLogin(); else $(open).classList.add("hidden");
     return true;
   }
+  if (st.view === "user") { leaveUserHome(); return true; }
   if (st.view === "thread") { showList(st.fid || lst.fid); return true; }
   return false;
 };
@@ -726,7 +1069,7 @@ function bindPull() {
   window.addEventListener("touchstart", (e) => {
     startY = null;
     dist = 0;
-    if (e.touches.length !== 1 || st.pulling) return;
+    if (e.touches.length !== 1 || st.pulling || st.view === "user") return;
     const atEdge = list() ? window.scrollY <= 0 : (isAtBottom() && !st.jump && !st.loading);
     if (atEdge) startY = e.touches[0].clientY;
   }, { passive: true });
@@ -849,13 +1192,15 @@ function bind() {
   $("#newTip").onclick = () => { $("#newTip").classList.add("hidden"); scrollToBottom(); };
 
   $("#feed").addEventListener("click", (e) => {
-    // 任何位置的用户名都是「只看此人」；引用框/回复条其余区域点了跳到原楼
+    // 任何位置的用户名轻点是「只看此人」，长按是菜单；引用框/回复条其余区域点了跳到原楼
     const un = e.target.closest(".uname[data-uid], .at[data-uid]");
     if (un) {
       e.preventDefault();
-      const uid = un.dataset.uid;
-      if (st.topic && uid === st.topic.authorid) setMode("op"); else setMode("user", { uid, name: un.textContent.replace(/^@/, "").trim() });
-      return start();
+      if (!localStorage.getItem("live_lp_tip")) {
+        localStorage.setItem("live_lp_tip", "1");
+        toast("提示：长按用户名可以进入他的个人主页，看他所有的发帖和回复", 5000);
+      }
+      return onlyUser(userOf(un));
     }
     const t = jumpTargetOf(e, st.tid);
     if (t) {
@@ -875,6 +1220,7 @@ function bind() {
 
 (async function init() {
   bind();
+  bindUserHome();
   setTitle();
   const pages = "https://vitocichen.github.io/NGA/data/";
   const [smiles, remoteNames] = await Promise.all([

@@ -33,7 +33,7 @@ function jumpAttrs(kind, id, args) {
   return postLink(kind, id, args, "", "").match(/data-jpid="[^"]*" data-jtid="[^"]*" data-jpage="[^"]*"/)[0];
 }
 function userTag(uid, name) {
-  return uid ? `<span class="at" data-uid="${uid}" title="只看此人">${name}</span>` : `<span class="at">${name}</span>`;
+  return uid ? `<span class="at" data-uid="${uid}" title="点击只看此人，右键进入个人主页">${name}</span>` : `<span class="at">${name}</span>`;
 }
 // 点击引用框/回复条时的跳转目标；点到用户名、普通链接、图片、折叠标题或正在选中文字时不跳
 function jumpTargetOf(e, curTid) {

@@ -33,8 +33,26 @@
       <button data-mode="op">楼主</button>
       <button data-mode="user" class="user-tab">指定用户</button>
     </div>
+    <button id="homeBtn" class="home-btn hidden" title="查看这个人的所有发帖和回复">主页 ›</button>
   </div>
 </header>
+
+<header id="userTop" class="hidden">
+  <div class="bar">
+    <button id="uhBack" title="返回">‹</button>
+    <div id="uhName" class="list-title">个人主页</div>
+    <a id="uhNga" class="uh-nga" target="_blank">NGA</a>
+  </div>
+  <div id="uhMeta" class="uh-meta"></div>
+  <div class="bar tabs">
+    <div class="seg">
+      <button data-uhkind="topics" class="on">发帖</button>
+      <button data-uhkind="replies">回复</button>
+    </div>
+  </div>
+</header>
+<main id="uhFeed" class="hidden"></main>
+<div id="uhMore" class="hidden"></div>
 
 <div id="newTip" class="hidden"></div>
 <div id="topMore"></div>
@@ -110,7 +128,16 @@
       <button id="userCancel">取消</button>
       <button id="userOk" class="primary">查看</button>
     </div>
-    <p class="hint">昵称需要在本帖出现过（会从已加载的楼层和引用里匹配）；也可以直接点楼层里的用户名。</p>
+    <p class="hint">昵称需要在本帖出现过（会从已加载的楼层和引用里匹配）；也可以直接点楼层里的用户名。<b>长按用户名</b>可以进入他的个人主页。</p>
+  </div>
+</div>
+
+<div id="userSheet" class="panel sheet hidden">
+  <div class="panel-box">
+    <div id="sheetName" class="sheet-name"></div>
+    <button id="sheetHome" class="primary">进入个人主页</button>
+    <button id="sheetOnly">只看他在本帖的发言</button>
+    <button id="sheetCancel">取消</button>
   </div>
 </div>
 

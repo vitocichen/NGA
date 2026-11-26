@@ -4,7 +4,7 @@
 .list-title { flex: 1; min-width: 0; font-size: 16px; font-weight: 700; color: var(--brown); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 帖子列表顶栏和帖子页顶栏一样，让出 iPhone 状态栏（刘海/灵动岛）区域 */
-#listTop {
+#listTop, #userTop {
   position: sticky;
   top: 0;
   z-index: 10;
@@ -14,8 +14,9 @@
 }
 
 /* 顶栏尽量矮，多留地方给帖子 */
-#top .bar:last-child, #listTop .bar:last-child { margin-bottom: 0; }
-#top .seg button { padding: 3px 12px; font-size: 13px; }
+#top .bar:last-child, #listTop .bar:last-child, #userTop .bar:last-child { margin-bottom: 0; }
+#top .seg button, #userTop .seg button { padding: 3px 12px; font-size: 13px; }
+#uhBack { height: 34px; padding: 0 10px; flex: none; font-size: 22px; line-height: 1; font-weight: 700; }
 
 /* 帖子列表 */
 #listFeed { padding: 8px 0; }
@@ -87,6 +88,27 @@
 }
 #nav #jumpBack { background: var(--brown2); opacity: 1; }
 #nav #jumpBtn { font-size: 17px; }
+/* 个人主页：长按用户名或「主页 ›」进入 */
+.uname[data-uid], .at[data-uid] { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+.pressing { opacity: .5; }
+.home-btn { flex: none; height: 28px; padding: 0 10px; font-size: 13px; font-weight: 700; color: var(--brown2); }
+.uh-nga { flex: none; padding: 0 6px; font-size: 13px; color: var(--link); text-decoration: none; }
+.uh-meta { margin: -2px 2px 6px; font-size: 12px; color: var(--muted); }
+#uhFeed { padding: 8px 0; }
+#uhMore { padding: 14px; text-align: center; color: var(--muted); font-size: 13px; }
+#uhMore .err { color: var(--op); }
+#uhMore a { color: var(--link); }
+.t-forum { margin-right: 5px; padding: 0 5px; border: 1px solid var(--line); border-radius: 3px; font-size: 11px; font-weight: 400; color: var(--muted); vertical-align: 1px; }
+.urow .u-head { display: flex; gap: 6px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.urow .u-head b { flex: 1; min-width: 0; color: var(--brown2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.urow .content { margin-top: 4px; max-height: 14em; overflow: hidden; }
+.urow .content img { max-height: 140px; }
+#uhFeed .qgo { display: none; }
+.sheet { align-items: flex-end; padding: 0; }
+.sheet .panel-box { max-width: none; padding: 12px 14px calc(env(safe-area-inset-bottom) + 12px); border-radius: 14px 14px 0 0; }
+.sheet button { display: block; width: 100%; height: 44px; margin-top: 8px; font-size: 15px; }
+.sheet .primary { background: var(--brown); border-color: var(--brown); color: var(--on-accent); font-weight: 700; }
+.sheet-name { text-align: center; font-size: 13px; color: var(--muted); }
 .post.hit { animation: post-hit 2.6s ease-out; }
 @keyframes post-hit {
   0%, 55% { background: var(--newbg); box-shadow: 0 0 0 2px var(--brown2); }

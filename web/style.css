@@ -83,7 +83,9 @@ input:focus, select:focus { border-color: var(--quote-border); }
 .quick { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .dt { display: flex; align-items: center; gap: 5px; margin-bottom: 5px; font-size: 12px; }
 .dt input { flex: 1; min-width: 0; }
-.topic .ttl { font-weight: 700; color: var(--brown); margin-bottom: 4px; line-height: 1.45; }
+.topic .wide-select { font-weight: 700; color: var(--brown); }
+.topic .metas { margin: 6px 0; padding: 0 2px; }
+.topic .row input { font-size: 12px; }
 .topic .meta { display: flex; justify-content: space-between; font-size: 11.5px; }
 .topic .meta span { color: var(--muted); }
 .status { font-size: 11.5px; color: var(--brown2); }
@@ -349,6 +351,29 @@ a.qjump { cursor: pointer; }
 .t-last b { display: block; color: var(--brown2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-more { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; }
 
+/* ---------- 个人主页 ---------- */
+#userView { max-width: 1080px; margin: 0 auto; }
+.uh-who { display: flex; align-items: center; gap: 10px; }
+.uh-avatar { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; border: 1px solid var(--line); }
+.uh-tabs { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.uh-tabs .list-meta { margin-left: 6px; }
+.urow { padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--row1); cursor: pointer; }
+.urow:nth-child(even) { background: var(--row2); }
+.urow:hover { background: var(--table-hover); }
+.urow .u-head { display: flex; gap: 8px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.urow .u-head b { color: var(--brown2); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.urow .u-head .u-time { margin-left: auto; flex: none; }
+.urow .content { margin-top: 3px; max-height: 15em; overflow: hidden; }
+.urow .content img { max-height: 160px; }
+#uhFeed .qgo { display: none; }
+.t-forum { margin-right: 6px; padding: 0 5px; border: 1px solid var(--line); border-radius: 3px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+.ctx-menu { position: fixed; z-index: 60; min-width: 170px; padding: 4px 0; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); font-size: 13px; }
+.ctx-menu .ctx-title { padding: 3px 12px 4px; font-size: 11.5px; color: var(--muted); border-bottom: 1px solid var(--line); margin-bottom: 3px; }
+.ctx-menu a { display: block; padding: 5px 12px; color: var(--ink); text-decoration: none; cursor: pointer; }
+.ctx-menu a:hover { background: var(--table-hover); }
+
 /* ---------- NGA 账号 ---------- */
 .acct-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; }
 #acctText { font-weight: 700; color: var(--brown2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -603,6 +628,8 @@ body.vol-mode #volMain { display: flex; }
 .vsec-h .seg { margin-top: 0; }
 .vsec-h .seg .btn { flex: none; padding: 1px 10px; font-size: 12px; }
 .vsec-r { margin-left: auto; }
+.vtime { font-size: 12px; color: var(--muted); white-space: nowrap; }
+.vold { color: #c77a00; font-weight: 700; }
 .vbsearch { position: relative; display: inline-flex; align-items: center; }
 .vbsearch input { width: 200px; height: 24px; padding: 0 22px 0 8px; border-radius: 12px; font-size: 12px; }
 .vbsearch a { position: absolute; right: 7px; color: var(--muted); font-size: 14px; text-decoration: none; }
@@ -642,6 +669,8 @@ body.vol-mode #volMain { display: flex; }
 .vwatch-list tbody tr.on td { background: var(--newbg); }
 .vwatch-list tbody tr.on td:first-child { box-shadow: inset 3px 0 0 var(--brown); }
 .vwatch-detail { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.vwatch-body.no-detail .vwatch-detail { display: none; }
+.vwatch-body.no-detail .vwatch-list { width: 100%; border-right: none; }
 .vwatch-detail .vd-head { min-height: 44px; }
 .vd-remove { font-size: 12px; color: var(--muted); text-decoration: none; }
 .vd-remove:hover { color: var(--vol-up); }

@@ -45,22 +45,19 @@
     <div id="acctHint" class="acct-hint">未登录时 NGA 不返回用户名，部分昵称只能显示 UID。<a href="#" id="cookieLink">手动粘贴 Cookie</a></div>
   </section>
 
-  <section class="box">
-    <label class="lbl">帖子</label>
-    <select id="tidSelect" class="wide-select"></select>
-    <div class="row" style="margin-top:5px">
-      <input id="tidInput" placeholder="或粘贴帖子链接 / tid">
-      <button id="openBtn" class="btn small">打开</button>
-    </div>
-  </section>
-
   <section class="box topic">
     <button id="backBtn" class="btn wide back-btn" title="查看版面里的其他帖子">‹ 返回帖子列表</button>
-    <div id="topicTitle" class="ttl">未加载</div>
-    <div class="meta"><span>楼主</span><b id="topicAuthor">-</b></div>
-    <div class="meta"><span>版面</span><b id="topicForum">-</b></div>
-    <div class="meta"><span>总楼层</span><b id="topicRows">-</b></div>
-    <div class="meta"><span>最后回复</span><b id="topicLast">-</b></div>
+    <select id="tidSelect" class="wide-select" title="切换帖子"></select>
+    <div class="metas">
+      <div class="meta"><span>楼主</span><b id="topicAuthor">-</b></div>
+      <div class="meta"><span>版面</span><b id="topicForum">-</b></div>
+      <div class="meta"><span>总楼层</span><b id="topicRows">-</b></div>
+      <div class="meta"><span>最后回复</span><b id="topicLast">-</b></div>
+    </div>
+    <div class="row">
+      <input id="tidInput" placeholder="粘贴帖子链接 / tid">
+      <button id="openBtn" class="btn small">打开</button>
+    </div>
   </section>
 
   <section class="box">
@@ -148,6 +145,26 @@
     <div id="listFeed"></div>
     <div id="listMore" class="list-more"></div>
   </section>
+  <section id="userView" class="hidden">
+    <div class="list-head">
+      <div class="uh-who">
+        <button id="uhBack" class="btn small">‹ 返回帖子</button>
+        <img id="uhAvatar" class="uh-avatar hidden" alt="">
+        <div>
+          <div id="uhName" class="list-title">个人主页</div>
+          <div id="uhMeta" class="list-meta"></div>
+        </div>
+      </div>
+      <a id="uhNga" class="btn small" target="_blank" title="在 NGA 网页里打开这个人的主页">在 NGA 打开</a>
+    </div>
+    <div class="uh-tabs">
+      <button class="btn small" data-uhkind="topics">发帖</button>
+      <button class="btn small" data-uhkind="replies">回复</button>
+      <span id="uhTip" class="list-meta"></span>
+    </div>
+    <div id="uhFeed"></div>
+    <div id="uhMore" class="list-more"></div>
+  </section>
   <div id="newBanner" class="banner hidden"></div>
   <div id="topSentinel"><span id="topText"></span></div>
   <div id="feed"></div>
@@ -159,12 +176,12 @@
   <div class="vtop">
     <section id="volOverview" class="vov"></section>
     <section class="vsec vrhythm">
-      <div class="vsec-h"><b>今天的成交节奏</b><span>沪深两市比昨天同一时间多成交（红，放量）还是少成交（绿，缩量）</span></div>
+      <div class="vsec-h"><b>今天的成交节奏</b><span>比昨天同一时间多成交（红，放量）还是少成交（绿，缩量）</span><span id="volRhythmTime" class="vsec-r vtime"></span></div>
       <div id="volChart" class="vchart"></div>
     </section>
   </div>
   <section class="vsec">
-    <div class="vsec-h"><b>沪深指数</b><span>曲线是今天的分时走势，虚线是昨收；点卡片看大图</span></div>
+    <div class="vsec-h"><b>沪深指数</b><span>曲线是今天的分时走势，虚线是昨收；点卡片看大图</span><span id="volIdxTime" class="vsec-r vtime"></span></div>
     <div id="volIndices" class="vidx"></div>
   </section>
   <section class="vsec vboards">
@@ -192,15 +209,16 @@
       <span class="vgact"><a href="#" id="volGroupRename">改名</a><a href="#" id="volGroupDelete">删除分组</a></span>
       <span id="volWatchMeta" class="vsec-r"></span>
     </div>
-    <div class="vwatch-body">
+    <div class="vwatch-body no-detail" id="volWatchBody">
       <div class="vwatch-list"><table class="vtable" id="volWatchTable"></table></div>
       <div class="vwatch-detail">
         <div class="vd-head">
           <a href="#" id="volDetailBack" class="vd-back hidden">‹ 返回板块</a>
           <div id="volDetailTitle" class="vd-title"></div>
           <a href="#" id="volDetailRemove" class="vd-remove hidden">移出本分组</a>
+          <button id="volDetailClose" class="btn tiny" title="收起右侧详情（Esc）">关闭</button>
         </div>
-        <div id="volDetailBody" class="vd-body"><div class="vempty">点左边的股票看分时曲线，点板块看成分股</div></div>
+        <div id="volDetailBody" class="vd-body"></div>
       </div>
     </div>
   </section>
@@ -216,6 +234,7 @@
   <div id="volDrawerBody" class="vd-body"></div>
 </aside>
 
+<div id="ctxMenu" class="ctx-menu hidden"></div>
 <div id="nav">
   <div id="posInfo" class="hidden"></div>
   <button id="jumpBackBtn" class="hidden" title="回到跳转前的位置">↩ 返回</button>
