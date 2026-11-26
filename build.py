@@ -12,7 +12,7 @@ import PyInstaller.__main__
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 NAME = "NGAReader"
-SOURCE_FILES = ["app.py", "nga_api.py", "nga_ai.py", "nga_login.py", "build.py", "requirements.txt",
+SOURCE_FILES = ["app.py", "nga_api.py", "nga_ai.py", "nga_login.py", "ashare.py", "build.py", "requirements.txt",
                 "README.md", "LICENSE", ".gitignore", ".gitattributes", "启动_windows.bat", "启动_mac.command"]
 
 

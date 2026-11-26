@@ -24,6 +24,7 @@ if sys.platform == "win32":
 
     subprocess.Popen.__init__ = _popen_no_window
 
+import ashare
 import nga_ai
 from nga_api import DATA_DIR, RES_DIR, NgaClient, NgaError, fetch_image
 from nga_login import LoginError, LoginFlow
@@ -36,6 +37,7 @@ APP_ID = "nga-reader"
 BYE_GRACE_SEC = 30
 IDLE_EXIT_SEC = 12 * 3600
 client = NgaClient()
+vol = ashare.VolClient(DATA_DIR, os.path.join(WEB_DIR, "boards_seed.json"))
 last_activity = time.time()
 bye_at = 0.0
 analysis_lock = threading.Lock()
@@ -87,6 +89,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(nga_ai.status())
             elif u.path == "/api/ai/models":
                 self._json({"models": nga_ai.list_models(q.get("provider", ""))})
+            elif u.path == "/api/vol/snapshot":
+                self._json(vol.snapshot(ashare.check_codes(q.get("codes", ""))))
+            elif u.path == "/api/vol/minutes":
+                self._json(vol.minutes(ashare.check_codes(q.get("codes", ""))))
+            elif u.path == "/api/vol/search":
+                self._json({"items": vol.search(q.get("q", ""))})
+            elif u.path == "/api/vol/overview":
+                self._json(vol.overview())
+            elif u.path == "/api/vol/boards":
+                self._json(vol.boards(q.get("type", "industry"), q.get("sort", "pct")))
+            elif u.path == "/api/vol/board":
+                self._json(vol.board_stocks(q.get("code", "")))
+            elif u.path == "/api/vol/boardsearch":
+                self._json(vol.board_search(q.get("q", ""), quotes=q.get("quotes") == "1"))
+            elif u.path == "/api/vol/kline":
+                self._json(vol.kline(q.get("code", "").lower(), q.get("period", "day")))
+            elif u.path == "/api/vol/boardtrends":
+                self._json(vol.board_trends(q.get("codes", "")))
+            elif u.path == "/api/vol/boardquotes":
+                self._json(vol.board_quotes(q.get("codes", "")))
             elif u.path == "/img":
                 url = q.get("u", "")
                 host = urlparse(url).hostname or ""
@@ -96,7 +118,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, fetch_image(url), ctype, "max-age=86400")
             else:
                 self._static(u.path)
-        except (NgaError, nga_ai.AiError) as e:
+        except (NgaError, nga_ai.AiError, ashare.VolError) as e:
             self._json({"error": str(e)}, 502)
         except (KeyError, ValueError) as e:
             self._json({"error": f"参数错误：{e}"}, 400)

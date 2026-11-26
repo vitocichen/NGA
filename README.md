@@ -10,8 +10,21 @@
 - 只看楼主、按时间筛选（近 1 小时、今天、昨天、自定义）、跳到楼层
 - AI 分析：总结观点、观点变化、预判与计划、自由提问，结论标注来源楼层可点击跳转
 - AI 服务商：Cursor、OpenCode Go、DeepSeek、通义千问、Kimi、智谱、硅基流动、OpenRouter、OpenAI、本地 Ollama、任意 OpenAI 兼容接口
+- A 股行情（侧栏顶部切换）：市场概况（放量 / 缩量、涨跌分布、主力净流入、昨日涨停表现）、四大指数、今天的成交节奏、行业 / 概念板块排行与成分股、自选分组、搜索看个股分时，盘中 3 秒刷新
 
 不需要 NGA 账号，以游客身份访问。
+
+## A 股行情
+
+不需要账号。行情、分时来自腾讯财经（新浪、东方财富备用）；涨跌分布、主力净流入、昨日涨停表现、近 60 日成交额、板块来自东方财富（约 1 分钟刷新一次，东财按 IP 限制请求次数，被限制时暂停 2 分钟并先显示上次的数据）。板块搜索用程序自带的板块名单（`web/boards_seed.json`，来自东财行情中心菜单，每 7 天在后台更新），支持名称和拼音首字母。
+
+- 两市成交总额 = 上证指数（沪市全市场）+ 深证综指（深市全市场），不含北交所
+- 较前一日同期：今天到现在的成交额对比昨天到同一时刻（盘中按本分钟已过秒数折算），多为放量、少为缩量
+- 预测成交总额：近几个交易日每分钟的成交占比 + 剩余时段贝叶斯收缩，开盘初期不会因单日高开低开剧烈失真；后面的百分比是对比近 60 日平均
+- 量比（板块、个股、指数）：当前每分钟成交量 ÷ 近 5 日同时段平均，≥1.2 标放量，≤0.8 标缩量
+- 自选分组保存在本机浏览器配置里；开盘前显示上一交易日复盘，午休、收盘后自动降低刷新频率
+
+算法和口径参考 [ashare-volpulse](https://github.com/LostMoonkin/ashare-volpulse)（MIT）。仅供参考，不构成投资建议。
 
 ## 直接使用（推荐）
 
@@ -66,3 +79,11 @@ python build.py
 ## 许可证
 
 [MIT](LICENSE)：可以自由使用、修改、分发，保留版权声明即可。
+
+第三方组件：
+
+| 组件 | 用途 | 许可证 |
+|---|---|---|
+| [marked](https://github.com/markedjs/marked)（`web/marked.min.js`） | AI 回复的 Markdown 渲染 | MIT |
+| [Apache ECharts](https://echarts.apache.org/)（`web/echarts.min.js`） | A 股行情图表 | Apache-2.0 |
+| [ashare-volpulse](https://github.com/LostMoonkin/ashare-volpulse) | 成交额同比、全天预测的算法与口径（移植到 `ashare.py`、`web/vol.js`） | MIT，Copyright (c) 2026 lostmoonkin@lishui |

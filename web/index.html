@@ -19,6 +19,24 @@
     </select>
   </div>
 
+  <div class="apptabs">
+    <button data-app="nga" class="on">NGA 帖子</button>
+    <button data-app="vol">A股行情</button>
+  </div>
+
+  <div id="volSide">
+    <div class="vsearch">
+      <input id="volSearch" placeholder="搜股票或板块，如 600519 / 茅台 / CPO" autocomplete="off">
+      <div id="volSuggest" class="hidden"></div>
+    </div>
+    <div class="vnav">
+      <button data-vpage="market" class="on">市场概况</button>
+      <button data-vpage="watch">我的自选</button>
+    </div>
+    <div id="volStatus" class="vstatus">连接中…</div>
+    <div class="vstatus vnote">放量 / 缩量：比昨天同一时间成交多还是少。<br>量比：当前每分钟成交量 ÷ 近 5 日同时段平均，≥1.2 放量，≤0.8 缩量。</div>
+  </div>
+
   <section class="box account">
     <div class="acct-row">
       <span id="acctText">NGA 账号：检查中…</span>
@@ -136,11 +154,73 @@
   <div id="sentinel"><span id="footerText"></span></div>
 </main>
 
+<main id="volMain">
+ <div id="volPageMarket" class="vpage">
+  <div class="vtop">
+    <section id="volOverview" class="vov"></section>
+    <section class="vsec vrhythm">
+      <div class="vsec-h"><b>今天的成交节奏</b><span>沪深两市比昨天同一时间多成交（红，放量）还是少成交（绿，缩量）</span></div>
+      <div id="volChart" class="vchart"></div>
+    </section>
+  </div>
+  <section class="vsec">
+    <div class="vsec-h"><b>沪深指数</b><span>曲线是今天的分时走势，虚线是昨收；点卡片看大图</span></div>
+    <div id="volIndices" class="vidx"></div>
+  </section>
+  <section class="vsec vboards">
+    <div class="vsec-h">
+      <b>板块</b>
+      <div class="seg" id="volBoardType"><button class="btn" data-v="industry">行业</button><button class="btn" data-v="concept">概念</button></div>
+      <span class="vsec-l">排序</span>
+      <div class="seg" id="volBoardSort"><button class="btn" data-v="pct">涨跌幅</button><button class="btn" data-v="vr">量比</button><button class="btn" data-v="amt">成交额</button></div>
+      <span class="vbsearch"><input id="volBoardSearch" placeholder="搜板块，如 PCB / CPO / 半导体" autocomplete="off"><a href="#" id="volBoardSearchClear" class="hidden" title="清除搜索">×</a></span>
+      <span id="volBoardsMeta" class="vsec-r"></span>
+    </div>
+    <div class="vtable-wrap"><table class="vtable" id="volBoards"></table></div>
+  </section>
+  <div class="vfoot">
+    <span>点板块看成分股，点股票看分时；涨跌分布、主力净流入、板块来自东方财富，约 1 分钟刷新</span>
+    <span>行情：腾讯财经（新浪 / 东财备用）· 成交额算法参考 <a href="https://github.com/LostMoonkin/ashare-volpulse" target="_blank">ashare-volpulse</a>（MIT）· 仅供参考，不构成投资建议</span>
+  </div>
+ </div>
+
+ <div id="volPageWatch" class="vpage hidden">
+  <section class="vsec vwatch">
+    <div class="vsec-h">
+      <b>我的自选</b>
+      <div id="volGroupTabs" class="vgtabs"></div>
+      <span class="vgact"><a href="#" id="volGroupRename">改名</a><a href="#" id="volGroupDelete">删除分组</a></span>
+      <span id="volWatchMeta" class="vsec-r"></span>
+    </div>
+    <div class="vwatch-body">
+      <div class="vwatch-list"><table class="vtable" id="volWatchTable"></table></div>
+      <div class="vwatch-detail">
+        <div class="vd-head">
+          <a href="#" id="volDetailBack" class="vd-back hidden">‹ 返回板块</a>
+          <div id="volDetailTitle" class="vd-title"></div>
+          <a href="#" id="volDetailRemove" class="vd-remove hidden">移出本分组</a>
+        </div>
+        <div id="volDetailBody" class="vd-body"><div class="vempty">点左边的股票看分时曲线，点板块看成分股</div></div>
+      </div>
+    </div>
+  </section>
+ </div>
+</main>
+
+<aside id="volDrawer" class="hidden">
+  <div class="vd-head">
+    <a href="#" id="volDrawerBack" class="vd-back hidden">‹ 返回板块</a>
+    <div id="volDrawerTitle" class="vd-title"></div>
+    <button id="volDrawerClose" class="btn tiny">关闭</button>
+  </div>
+  <div id="volDrawerBody" class="vd-body"></div>
+</aside>
+
 <div id="nav">
   <div id="posInfo" class="hidden"></div>
   <button id="jumpBackBtn" class="hidden" title="回到跳转前的位置">↩ 返回</button>
   <button id="topBtn" title="回到顶部（Home）">↑ 顶部</button>
-  <button id="bottomBtn" title="到已加载内容底部（End），会继续自动加载">↓ 底部</button>
+  <button id="bottomBtn" title="回到最新楼层（End）">↓ 底部</button>
 </div>
 <aside id="aiPanel" class="hidden">
   <div class="ai-head">
@@ -174,7 +254,7 @@
     </div>
 
     <label class="lbl" id="aiKeyLabel">API Key</label>
-    <input id="aiKeyInput" class="wide-input" type="password" autocomplete="off">
+    <input id="aiKeyInput" class="wide-input masked" type="text" autocomplete="off" spellcheck="false" data-lpignore="true">
     <div class="ai-help"><a id="aiKeyLink" href="#" target="_blank">去获取 API Key</a>　Key 只保存在本机 <code>data\ai.json</code>，消耗的是你自己的额度。</div>
 
     <label class="lbl">模型</label>
@@ -199,5 +279,7 @@
 <script src="app.js"></script>
 <script src="marked.min.js"></script>
 <script src="ai.js"></script>
+<script src="echarts.min.js"></script>
+<script src="vol.js"></script>
 </body>
 </html>

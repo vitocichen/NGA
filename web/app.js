@@ -257,6 +257,8 @@ async function locate(ts, gen) {
 }
 
 function sentinelNear() {
+  // 切到 A股量能时帖子区被隐藏，位置全是 0，会被误判为一直在顶部而无限往前加载
+  if (!$("#main").clientHeight) return false;
   const box = $("#main").getBoundingClientRect();
   if (state.order === "chat") return $("#topSentinel").getBoundingClientRect().bottom > box.top - PREFETCH_PX;
   return $("#sentinel").getBoundingClientRect().top < box.bottom + PREFETCH_PX;
@@ -743,7 +745,16 @@ function bind() {
     else $("#main").scrollTop = 0;
   };
   const toTop = () => { $("#main").scrollTop = 0; };
-  const toBottom = () => scrollToBottom();
+  // 「底部」= 回到最新。最新在下且不限结束时间时最新楼层就在底部；从头看、跳转浏览或限定了结束时间时，
+  // 已加载的内容到不了今天，改回最新在下重新加载（保留只看楼主 / 指定用户）
+  const toBottom = () => {
+    if (state.view === "list" || (state.order === "chat" && !state.to)) return scrollToBottom();
+    state.order = "chat";
+    $$(".order").forEach((x) => x.classList.toggle("active", x.dataset.order === "chat"));
+    setRange(null, null);
+    $$("[data-range]").forEach((x) => x.classList.remove("active"));
+    startView();
+  };
   $("#topBtn").onclick = toTop;
   $("#bottomBtn").onclick = toBottom;
   let posPending = false;
@@ -762,7 +773,8 @@ function bind() {
   }, true);
   ["wheel", "mousedown", "keydown"].forEach((ev) => $("#main").addEventListener(ev, () => { state.anchor = null; }, { passive: true }));
   document.addEventListener("keydown", (e) => {
-    if (e.target.closest("input, select, textarea")) return;
+    if (e.target.closest && e.target.closest("input, select, textarea")) return;
+    if (document.body.classList.contains("vol-mode")) return;
     if (e.key === "Home") { e.preventDefault(); toTop(); }
     if (e.key === "End") { e.preventDefault(); toBottom(); }
   });
@@ -779,7 +791,7 @@ function bind() {
   $("#lightbox").onclick = () => $("#lightbox").classList.add("hidden");
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") $("#lightbox").classList.add("hidden");
-    if (e.key === "F5") { e.preventDefault(); refresh(); }
+    if (e.key === "F5") { e.preventDefault(); if (document.body.classList.contains("vol-mode")) window.volRefresh(); else refresh(); }
   });
 
   document.addEventListener("error", (e) => {
