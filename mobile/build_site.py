@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import time
@@ -26,7 +27,10 @@ WATCH_DAYS = 3
 WATCH_FILE = os.path.join(ROOT, "data", "watch.json")
 STATIC_FILES = ["index.html", "m.css", "m.js", "manifest.json", "icon-180.png", "icon-512.png",
                 "live.html", "live.css", "live.js", "install.html", "scriptable.js",
-                "android.html", "loader.js", "nga-live.user.js"]
+                "android.html", "loader.js", "nga-live.user.js",
+                "stock.html", "stock.css", "stock.js", "stock-scriptable.js"]
+# 电脑版与手机版共用的文件（A 股页面用到计算模块、一键判断、图表库和板块名单）
+SHARED_FILES = ("render.js", "themes.css", "volcore.js", "judge.js", "echarts.min.js", "boards_seed.json")
 
 
 def collect(client, tid, authorid, pages, since=0):
@@ -156,21 +160,22 @@ def main():
     here = os.path.dirname(os.path.abspath(__file__))
     for name in STATIC_FILES:
         shutil.copy2(os.path.join(here, name), out)
-    for shared in ("render.js", "themes.css"):
+    for shared in SHARED_FILES:
         shutil.copy2(os.path.join(ROOT, "web", shared), out)
-    version_assets(os.path.join(out, "live.html"), out)
+    version_assets(os.path.join(out, "live.html"), out, ("themes.css", "m.css", "live.css", "render.js", "live.js"))
+    version_assets(os.path.join(out, "stock.html"), out, ("themes.css", "stock.css", "echarts.min.js", "volcore.js", "stock.js", "judge.js"))
     print("站点已生成：", out)
 
 
-def version_assets(page, out):
-    """给页面引用的脚本和样式加上按内容算的版本号。
-    手机每次都取最新的 live.html，但脚本和样式会被缓存 10 分钟；不加版本号时新页面会配上旧脚本而卡死。"""
+def version_assets(page, out, names):
+    """给页面引用的脚本和样式加上按内容算的版本号（绝对路径 /NGA/x 和相对路径 x 都处理）。
+    手机每次都取最新的页面，但脚本和样式会被缓存 10 分钟；不加版本号时新页面会配上旧脚本而卡死。"""
     with open(page, encoding="utf-8") as f:
         html = f.read()
-    for name in ("themes.css", "m.css", "live.css", "render.js", "live.js"):
+    for name in names:
         with open(os.path.join(out, name), "rb") as f:
             ver = hashlib.sha1(f.read()).hexdigest()[:10]
-        html = html.replace(f'/NGA/{name}"', f'/NGA/{name}?v={ver}"')
+        html = re.sub(rf'(["/]){re.escape(name)}"', rf'\g<1>{name}?v={ver}"', html)
     with open(page, "w", encoding="utf-8") as f:
         f.write(html)
 

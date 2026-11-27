@@ -23,6 +23,17 @@
 - 预测成交总额：近几个交易日每分钟的成交占比 + 剩余时段贝叶斯收缩，开盘初期不会因单日高开低开剧烈失真；后面的百分比是对比近 60 日平均
 - 量比（板块、个股、指数）：当前每分钟成交量 ÷ 近 5 日同时段平均，≥1.2 标放量，≤0.8 标缩量
 - 自选分组保存在本机浏览器配置里；开盘前显示上一交易日复盘，午休、收盘后自动降低刷新频率
+- 一键判断（阿狼规则）：按 NGA 楼主「-阿狼-」对海外链的说法，把压力位、均价线、炸板、缩量、大光二光、大盘环境机械化成规则，给分组里的海外链股票出加减仓信号（`web/judge.js`）
+
+### 手机版 A 股（iPhone）
+
+独立页面 `stock.html`（GitHub Pages），和手机版 NGA 分开。行情由手机直接请求腾讯（script 标签）和东方财富（JSONP），不经过电脑；计算和一键判断与电脑版共用 `web/volcore.js`、`web/judge.js`。
+
+1. iPhone 安装 Scriptable
+2. 电脑版 A股行情 → 我的自选 → 「📱 导出到手机」，复制出带全部自选分组的脚本（不想带自选可用公开模板 `stock-scriptable.js`）
+3. 发到手机，在 Scriptable 新建脚本粘贴后运行；第一次运行写入自选，之后在手机上改的自选不会被覆盖
+
+自选只存在手机和导出的脚本里，不会上传到公开仓库。
 
 算法和口径参考 [ashare-volpulse](https://github.com/LostMoonkin/ashare-volpulse)（MIT）。仅供参考，不构成投资建议。
 
@@ -86,4 +97,4 @@ python build.py
 |---|---|---|
 | [marked](https://github.com/markedjs/marked)（`web/marked.min.js`） | AI 回复的 Markdown 渲染 | MIT |
 | [Apache ECharts](https://echarts.apache.org/)（`web/echarts.min.js`） | A 股行情图表 | Apache-2.0 |
-| [ashare-volpulse](https://github.com/LostMoonkin/ashare-volpulse) | 成交额同比、全天预测的算法与口径（移植到 `ashare.py`、`web/vol.js`） | MIT，Copyright (c) 2026 lostmoonkin@lishui |
+| [ashare-volpulse](https://github.com/LostMoonkin/ashare-volpulse) | 成交额同比、全天预测的算法与口径（移植到 `ashare.py`、`web/volcore.js`） | MIT，Copyright (c) 2026 lostmoonkin@lishui |

@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<!-- 手机版 A 股行情：独立页面，行情由手机直接请求腾讯 / 东财（script 标签与 JSONP，不经过电脑）。
+     自选存在本页的 localStorage；首次打开时由 Scriptable 脚本写入电脑上的自选。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>A股行情</title>
+<script>document.documentElement.dataset.theme = localStorage.getItem("stock_theme") || "dark";</script>
+<link rel="stylesheet" href="themes.css">
+<link rel="stylesheet" href="stock.css">
+</head>
+<body>
+<header id="top">
+  <div class="bar">
+    <div class="title">A股行情</div>
+    <span id="updTime" class="upd"></span>
+    <button id="menuBtn" class="icon-btn" title="设置">⋯</button>
+  </div>
+  <div class="tabs">
+    <button data-page="market">市场</button>
+    <button data-page="watch">自选</button>
+  </div>
+</header>
+
+<main id="pageMarket" class="page hidden">
+  <section id="ovCard" class="card"></section>
+  <section class="card">
+    <div class="card-h"><b>今天的成交节奏</b><span class="muted">比昨天同一时间多成交（红）还是少成交（绿）</span></div>
+    <div id="rhythmChart" class="chart"></div>
+  </section>
+  <section id="idxCard" class="card idx-grid"></section>
+  <section class="card">
+    <div class="card-h">
+      <b>板块</b>
+      <div class="seg" id="boardType"><button data-v="industry">行业</button><button data-v="concept">概念</button></div>
+      <div class="seg" id="boardSort"><button data-v="pct">涨跌幅</button><button data-v="vr">量比</button><button data-v="amt">成交额</button></div>
+    </div>
+    <div id="boardList"></div>
+    <div id="boardMeta" class="meta"></div>
+  </section>
+</main>
+
+<main id="pageWatch" class="page hidden">
+  <div id="groupChips" class="gchips"></div>
+  <div class="wtools">
+    <input id="searchInput" placeholder="搜代码 / 名称 / 拼音，加入当前分组" autocomplete="off">
+    <button id="volJudgeBtn" class="jbtn">⚡ 一键判断</button>
+  </div>
+  <div id="searchResults" class="results hidden"></div>
+  <div id="watchHead" class="wrow whead">
+    <span data-sort="name">名称</span><span data-sort="price">现价</span><span data-sort="pct">涨跌</span><span data-sort="diff">比昨天同时</span>
+  </div>
+  <div id="watchList"></div>
+  <div id="watchMeta" class="meta"></div>
+</main>
+
+<div id="sheet" class="sheet hidden">
+  <div class="sheet-box">
+    <div class="sheet-h">
+      <div id="sheetTitle" class="sheet-title"></div>
+      <button id="sheetStar" class="small"></button>
+      <button id="sheetClose" class="small">关闭</button>
+    </div>
+    <div id="sheetBody" class="sheet-body"></div>
+  </div>
+</div>
+
+<div id="volJudge" class="hidden">
+  <div class="jbox">
+    <div class="vd-head">
+      <div class="vd-title">海外链一键判断<span>阿狼规则 · 当前分组</span></div>
+      <button id="volJudgeRun" class="small">重新判断</button>
+      <button id="volJudgeClose" class="small">关闭</button>
+    </div>
+    <div id="volJudgeBody" class="vd-body"></div>
+  </div>
+</div>
+
+<div id="menuPanel" class="sheet hidden">
+  <div class="sheet-box">
+    <div class="sheet-h"><div class="sheet-title">设置</div><button id="menuClose" class="small">关闭</button></div>
+    <div class="sheet-body">
+      <label class="row-l">主题
+        <select id="themeSel">
+          <option value="dark">深色</option><option value="nga">NGA 经典</option><option value="light">简洁白</option><option value="green">护眼绿</option>
+        </select>
+      </label>
+      <div class="row-l">当前分组<span class="btns"><button id="groupNew">新建</button><button id="groupRename">改名</button><button id="groupDelete">删除</button></span></div>
+      <div class="row-l">自选备份<span class="btns"><button id="exportBtn">导出</button><button id="importBtn">导入</button></span></div>
+      <p class="hint">自选只保存在这台手机上。导出会得到一段文字，可以发到电脑或另一台手机，再用「导入」恢复。</p>
+      <p class="hint">行情来自腾讯（实时价格、分时、K 线）和东方财富（涨跌分布、主力净流入、板块），均为免费公开接口，交易时段每 3 秒刷新。</p>
+    </div>
+  </div>
+</div>
+<div id="toast" class="hidden"></div>
+
+<script src="echarts.min.js"></script>
+<script src="volcore.js"></script>
+<script src="stock.js"></script>
+<script src="judge.js"></script>
+</body>
+</html>

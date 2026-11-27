@@ -23,7 +23,7 @@ MINUTE_TTL = 20
 EM_HOSTS = ("push2.eastmoney.com", "17.push2.eastmoney.com", "82.push2.eastmoney.com", "91.push2.eastmoney.com")
 EM_GAP = 1.5
 EM_COOLDOWN = 120
-EM_COOLDOWN_MAX = 1800
+EM_COOLDOWN_MAX = 300
 SWR_SAVE_GAP = 2
 DIR_MAX_AGE_DAYS = 7
 # 腾讯搜索结果的类型前缀 → 显示名；GP-A 含科创板（GP-A-KCB）
@@ -88,6 +88,7 @@ class VolClient:
         self._em_block = {}
         self._em_fails = {}
         self._refreshing = set()
+        self._refresh_err = {}
         self._swr_saving = False
         self._swr = self._load_swr()
 
@@ -121,7 +122,7 @@ class VolClient:
             items[m.group(1)] = {
                 "name": p[1], "price": _num(p[3]), "prev": _num(p[4]), "open": _num(p[5]),
                 "change": _num(p[31]), "pct": _num(p[32]), "high": _num(p[33]), "low": _num(p[34]),
-                "amount": amt, "time": p[30][:14],
+                "amount": amt, "volume": (_num(p[6]) or 0) * 100, "time": p[30][:14],
                 "turn": _num(p[38]), "amp": _num(p[43]), "vr": _num(p[49]) if len(p) > 49 else None,
             }
         return items
@@ -138,7 +139,7 @@ class VolClient:
                 "name": p[0], "price": price, "prev": prev, "open": _num(p[1]),
                 "change": price - prev if price and prev else None,
                 "pct": (price - prev) / prev * 100 if price and prev else None,
-                "high": _num(p[4]), "low": _num(p[5]), "amount": _num(p[9]),
+                "high": _num(p[4]), "low": _num(p[5]), "amount": _num(p[9]), "volume": _num(p[8]),
                 "time": p[30].replace("-", "") + p[31].replace(":", ""),
             }
         return items
@@ -224,9 +225,17 @@ class VolClient:
             raise VolError("K 线周期不对")
 
         def load():
-            d = self._get(f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{period},,,{KLINE_COUNT},qfq",
-                          "https://gu.qq.com/").json()["data"][code]
-            rows = d.get("qfq" + period) or d.get(period) or []
+            # 指数没有复权，复权接口会被腾讯的防火墙拦下（501），改用不复权的 kline 接口
+            try:
+                d = self._get(f"https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param={code},{period},,,{KLINE_COUNT},qfq",
+                              "https://gu.qq.com/").json()["data"][code]
+                rows = d.get("qfq" + period) or d.get(period) or []
+            except (requests.RequestException, ValueError, KeyError, TypeError):
+                rows = []
+            if not rows:
+                d = self._get(f"https://web.ifzq.gtimg.cn/appstock/app/kline/kline?param={code},{period},,,{KLINE_COUNT}",
+                              "https://gu.qq.com/").json()["data"][code]
+                rows = d.get(period) or []
             return {"items": [{"date": r[0], "open": _num(r[1]), "close": _num(r[2]), "high": _num(r[3]), "low": _num(r[4]),
                                "volume": (_num(r[5]) or 0) * 100} for r in rows if len(r) >= 6]}
         now = time.time()
@@ -250,21 +259,31 @@ class VolClient:
     # 返回值带 at（取到数据的时间戳）和 stale（是否已超过刷新周期），界面据此标注更新时间
     _EM_ERRORS = (requests.RequestException, ValueError, KeyError, TypeError, IndexError)
 
-    def _cached(self, key, ttl, fn):
+    def _cached(self, key, ttl, fn, force=False):
         now = time.time()
         with self._lock:
             hit = self._swr.get(key)
-        if hit and now - hit[0] < ttl:
+        if hit and now - hit[0] < ttl and not force:
             return {**hit[1], "at": hit[0], "stale": False}
-        if hit:
+        # 当天的旧数据先返回、后台刷新；前一天的数据或手动刷新就当场取，取不到再退回旧数据
+        same_day = hit and time.strftime("%Y%m%d", time.localtime(hit[0])) == time.strftime("%Y%m%d")
+        if same_day and not force:
             self._refresh_later(key, fn)
-            return {**hit[1], "at": hit[0], "stale": True}
+            return {**hit[1], "at": hit[0], "stale": True, "err": self._refresh_err.get(key)}
         try:
             data = fn()
         except self._EM_ERRORS as e:
-            raise VolError(f"东方财富数据获取失败：{e}") from e
+            if not hit:
+                raise VolError(f"东方财富数据获取失败：{e}") from e
+            self._refresh_failed(key, e)
+            return {**hit[1], "at": hit[0], "stale": True, "err": self._refresh_err.get(key)}
         self._store(key, data)
         return {**data, "at": time.time(), "stale": False}
+
+    def _refresh_failed(self, key, e):
+        msg = str(e)[:120] or type(e).__name__
+        self._refresh_err[key] = msg
+        print(f"[东财] 刷新 {key} 失败：{type(e).__name__}: {msg}", flush=True)
 
     def _refresh_later(self, key, fn):
         with self._lock:
@@ -275,17 +294,23 @@ class VolClient:
         def run():
             try:
                 self._store(key, fn())
-            except self._EM_ERRORS:
-                pass
+            except Exception as e:
+                self._refresh_failed(key, e)
             finally:
                 with self._lock:
                     self._refreshing.discard(key)
         threading.Thread(target=run, daemon=True).start()
 
+    def reset_cooldown(self):
+        """手动刷新：清掉东财的暂停状态，立即重新请求。"""
+        self._em_block.clear()
+        self._em_fails.clear()
+
     def _swr_file(self):
         return os.path.join(self.cache_dir, "vol_cache.json") if self.cache_dir else None
 
     def _store(self, key, data):
+        self._refresh_err.pop(key, None)
         with self._lock:
             self._swr[key] = (time.time(), data)
             start = not self._swr_saving
@@ -353,7 +378,7 @@ class VolClient:
         self._em_block[family] = time.time() + min(EM_COOLDOWN * 2 ** (fails - 1), EM_COOLDOWN_MAX)
         raise last
 
-    def overview(self):
+    def overview(self, force=False):
         """全市场涨跌分布、主力净流入、昨日涨停表现，以及沪深两市近 60 个交易日日均成交额。"""
         def load():
             # 涨跌分布在 push2ex 域名，和实时行情的 push2 分开限额，同时请求
@@ -369,7 +394,7 @@ class VolClient:
             return {"date": str(fb.get("qdate", "")), "main": main, "ztPerf": (rows.get("BK0815") or {}).get("f3"),
                     "buckets": buckets, "up": n(range(1, 12)), "flat": n([0]), "down": n(range(-11, 0))}
         avg_job = self._pool.submit(self._cached, "avg60", KLINE_TTL, self._avg60)
-        data = self._cached("overview", OVERVIEW_TTL, load)
+        data = self._cached("overview", OVERVIEW_TTL, load, force)
         try:
             avg = avg_job.result()
             data = {**data, "avg60": avg.get("avg60"), "avgDays": avg.get("avgDays")}
@@ -389,7 +414,7 @@ class VolClient:
         hist = [x for x in dates if x < today][-60:]
         return {"avg60": sum(series[0][x] + series[1][x] for x in hist) / len(hist), "avgDays": len(hist)}
 
-    def boards(self, kind, sort):
+    def boards(self, kind, sort, force=False):
         fs, fid = BOARD_TYPES.get(kind), BOARD_SORTS.get(sort)
         if not fs or not fid:
             raise VolError("板块类型或排序参数不对")
@@ -401,7 +426,7 @@ class VolClient:
             return {"items": [{"code": r["f12"], "name": r["f14"], "pct": _num(r["f3"]), "amount": _num(r["f6"]), "vr": _num(r["f10"]),
                                "up": r.get("f104"), "down": r.get("f105"), "lead": r.get("f128"), "leadPct": _num(r.get("f136"))}
                               for r in d["data"]["diff"]], "total": d["data"]["total"]}
-        return self._cached(f"boards:{kind}:{sort}", BOARDS_TTL, load)
+        return self._cached(f"boards:{kind}:{sort}", BOARDS_TTL, load, force)
 
     # ---------- 板块名单（搜索用） ----------
     # 东财的搜索接口已不可用：程序自带一份名单（web/boards_seed.json），本机副本超过 DIR_MAX_AGE_DAYS 天在后台更新

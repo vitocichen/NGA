@@ -207,6 +207,8 @@
       <b>我的自选</b>
       <div id="volGroupTabs" class="vgtabs"></div>
       <span class="vgact"><a href="#" id="volGroupRename">改名</a><a href="#" id="volGroupDelete">删除分组</a></span>
+      <button id="volJudgeBtn" class="btn small jbtn" title="按阿狼对海外链的规则，用当下最新行情判断本分组里海外链股票的加减仓">⚡ 一键判断（阿狼规则）</button>
+      <button id="volMobileBtn" class="btn small" title="复制带全部自选分组的 iPhone Scriptable 脚本">📱 导出到手机</button>
       <span id="volWatchMeta" class="vsec-r"></span>
     </div>
     <div class="vwatch-body no-detail" id="volWatchBody">
@@ -225,6 +227,16 @@
  </div>
 </main>
 
+<div id="volJudge" class="hidden">
+  <div class="jbox">
+    <div class="vd-head">
+      <div class="vd-title">海外链一键判断<span>按 NGA 楼主「-阿狼-」的规则 · 当前自选分组</span></div>
+      <button id="volJudgeRun" class="btn tiny">重新判断</button>
+      <button id="volJudgeClose" class="btn tiny">关闭</button>
+    </div>
+    <div id="volJudgeBody" class="vd-body"></div>
+  </div>
+</div>
 <aside id="volDrawer" class="hidden">
   <div class="vd-head">
     <a href="#" id="volDrawerBack" class="vd-back hidden">‹ 返回板块</a>
@@ -299,6 +311,8 @@
 <script src="marked.min.js"></script>
 <script src="ai.js"></script>
 <script src="echarts.min.js"></script>
+<script src="volcore.js"></script>
 <script src="vol.js"></script>
+<script src="judge.js"></script>
 </body>
 </html>

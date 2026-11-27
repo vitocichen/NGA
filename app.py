@@ -100,9 +100,12 @@ class Handler(BaseHTTPRequestHandler):
             elif u.path == "/api/vol/search":
                 self._json({"items": vol.search(q.get("q", ""))})
             elif u.path == "/api/vol/overview":
-                self._json(vol.overview())
+                force = q.get("force") == "1"
+                if force:
+                    vol.reset_cooldown()
+                self._json(vol.overview(force))
             elif u.path == "/api/vol/boards":
-                self._json(vol.boards(q.get("type", "industry"), q.get("sort", "pct")))
+                self._json(vol.boards(q.get("type", "industry"), q.get("sort", "pct"), q.get("force") == "1"))
             elif u.path == "/api/vol/board":
                 self._json(vol.board_stocks(q.get("code", "")))
             elif u.path == "/api/vol/boardsearch":
