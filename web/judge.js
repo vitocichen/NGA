@@ -122,6 +122,8 @@ function judgeSignals(code, s, kp) {
     // 大涨：涨幅达到涨停幅度的 6 成（主板 6%、创业板 / 科创板 12%）。前一天涨停时最高价≈收盘价，
     // 只看「突破昨日最高」的话涨 0.2% 也算强，必须加这个门槛
     bigUp: s.pct >= limPct * 0.6,
+    // 离涨停价不到 1%（比如天孚 160.52 vs 涨停 160.79）：和封板一样对待
+    nearLimit: lim != null && !sealed && s.price >= lim * 0.99,
     gain3,
     tailWhy,
     tail: !!tailWhy && tailWhy.lastPress && tailWhy.accel && tailWhy.hugeVol,
@@ -143,7 +145,7 @@ function judgeStock(code, s, kp, ctx) {
   const prio = JUDGE_HW[code][0];
   const g = judgeSignals(code, s, kp);
   const why = [];
-  let level, verdict, upside = true;
+  let level, verdict, upside = true, calm = false;
   const back = g.first ? judgeZoneText(g.first) : volPx(kp && kp.p1);
   if (g.gap != null && g.gap < -0.5 && s.price <= s.prev && s.pct <= -5 && g.below) {
     // 风控（楼主没说过，是这里加的）：低开低走跌超 5% 还在均价线下方，不能一股不动
@@ -167,14 +169,16 @@ function judgeStock(code, s, kp, ctx) {
     level = [3, 2, 2][prio - 1];
     verdict = "反弹尾声（最后一个压力位突破 + 加速 + 巨量）：哪怕封板也要分批卖";
     why.push(g.lastZone ? `碰到最后压力 ${judgeZoneText(g.lastZone)}` : "上方已没有压力位", g.gain3 >= 25 ? `3 日累计 ${volSign(g.gain3, 0)}%` : "连续涨停", `比昨天同时放量 ${volSign(g.volRatio, 0)}%`);
-  } else if (g.sealed) {
-    // 封住涨停当天不卖：他说缩量上板是压力位消化了，并建议吃下一个交易日的惯性溢价
+  } else if (g.sealed || g.nearLimit) {
+    // 封住（或离涨停不到 1%）当天不卖：他说缩量上板是压力位消化了，并建议吃下一个交易日的惯性溢价
     level = 0;
     upside = false;
     const shrink = g.volRatio != null && g.volRatio < 0;
-    verdict = shrink ? "缩量封板，压力位消化了：今天拿着，下一交易日高开吃溢价，再按开盘规则判断"
-      : "封板但没缩量：今天拿着，下一交易日高开后封不住板、跌破均价线就减";
-    why.push(g.volRatio == null ? "封涨停" : shrink ? "缩量封板（压力位消化了）" : `封板但比昨天同时放量 ${volSign(g.volRatio, 0)}%（还有换手筹码）`);
+    const what = g.sealed ? "封板" : "几乎涨停";
+    verdict = shrink ? `缩量${what}，压力位消化了：今天拿着，下一交易日高开吃溢价，再按开盘规则判断`
+      : `${what}但没缩量：今天拿着，下一交易日高开后冲不上去、跌破均价线就减`;
+    if (g.nearLimit) why.push(`离涨停价只差 ${((judgeLimit(code, s.prev) / s.price - 1) * 100).toFixed(1)}%`);
+    why.push(g.volRatio == null ? what : shrink ? `缩量${what}（压力位消化了）` : `${what}但比昨天同时放量 ${volSign(g.volRatio, 0)}%（还有换手筹码）`);
     why.push(...judgePressWhy(g, s.price));
   } else if (g.breakP1 && g.fade < 1 && g.bigUp) {
     // 没封死涨停还卖得出去，所以大盘缩量、龙头走弱照样加档（upside 保持 true）
@@ -193,6 +197,7 @@ function judgeStock(code, s, kp, ctx) {
       : `距压力 ${judgeZoneText(g.first)} 还有 ${(((g.first.lo - s.price) / s.price) * 100).toFixed(1)}%`);
   } else {
     level = 0;
+    calm = true;
     verdict = "盘面平稳：先拿着，盯压力位和均价线";
   }
   const base = level;
@@ -200,7 +205,8 @@ function judgeStock(code, s, kp, ctx) {
   if (upside) {
     if (ctx.mktShrink) { level++; env.push("大盘缩量（海外链冲高就是卖点）"); }
     if (ctx.leadWeak) { level++; env.push("大光 / 二光走弱"); }
-    if (level === 0 && ctx.semiStrong && s.price > s.prev) { level++; env.push("半导体强于通信，资金在切回国产"); }
+    // 半导体强于通信是相对强弱（当天通信可能也大涨），只给本身走势平平的股票加档
+    if (calm && level === 0 && ctx.semiStrong && s.price > s.prev) { level++; env.push("半导体强于通信，资金在切回国产"); }
   }
   why.push(...env);
   level = Math.min(level, 3);
@@ -294,12 +300,12 @@ function judgeRender() {
   const rules = `<details class="jrules"><summary>判断规则（按楼主原话整理）</summary><ul>
     <li><b>低开</b>：惯性溢价没出现，不割，等下一次反弹到压力位再减。<b>风控补充（楼主没说过）</b>：低开低走跌超 5% 且在均价线下方 → 先减 1/3，大光二光也弱则减 1/2。</li>
     <li><b>冲高走弱</b>：炸板、跌破分时均价线、或从最高点回落 ≥3 个点 → 抛压没消化，坚决减（光模块 / 光纤减 2/3，其他减 1/2）。</li>
-    <li><b>封住涨停</b>：当天不卖，下一交易日高开吃惯性溢价，再按开盘情况判断。缩量封 = 压力位消化了；放量封 = 还有换手筹码，第二天封不住就减。</li>
+    <li><b>封住涨停，或离涨停价不到 1%</b>：当天不卖（大盘、龙头、板块强弱都不影响），下一交易日高开吃惯性溢价，再按开盘情况判断。缩量封 = 压力位消化了；放量封 = 还有换手筹码，第二天封不住就减。</li>
     <li><b>大涨（涨停幅度的 6 成以上）且在最高点 1 个点内</b>：接近封板，先拿着；<b>大涨后从最高回落 1～3 个点</b> → 先减 1/3 锁利润。这两种没封死、还卖得出去，大盘缩量 / 龙头走弱照样加档。涨幅不到 6 成的按普通情况处理。</li>
     <li><b>压力位</b>：近 60 日最高点之后的下跌段里，留下套牢盘的价格区间——跳空缺口、横盘平台（连续 5 天振幅 ≤13% 后被跌破，取平台最低点）、成交密集区（下跌段按 3% 分档、单档成交占 6% 以上）、60 日均线；相距 3% 内合并，离现价 40% 以上的视为这波够不到。最近的一级是「第一」，最高的一级是「最后一个压力位」。</li>
     <li><b>反弹尾声</b>（他说的「最后一个压力位突破、加速拉升」）：碰到最后一级压力区（3% 内）+ 连续两个涨停或 3 日涨 25% 以上 + 比昨天同时放量 50% 以上，三条同时满足 → 哪怕封板也分批卖（光模块 / 光纤减 2/3，其他减 1/2）。</li>
     <li><b>冲到第一压力位附近</b>（距离 2% 内或已进入压力区）、但没封板也没收在最高点 → 先减 1/3。</li>
-    <li><b>加一档</b>：大盘比昨天同时缩量；大光、二光有一半以上走弱；或半导体强于通信（资金切回国产）。</li>
+    <li><b>加一档</b>：大盘比昨天同时缩量；大光、二光有一半以上走弱。<b>半导体强于通信</b>只给本身走势平平（没大涨、没走弱）的股票加档——它是相对强弱，通信也大涨的日子不算卖点。</li>
     <li>减仓顺序：第 1 批 光模块、光纤 → 第 2 批 存储接口、封测、电源、钻针 → 第 3 批 PCB。</li>
   </ul></details>`;
   $("#volJudgeBody").innerHTML = `${phaseNote}${env}${rows}${others}${rules}
